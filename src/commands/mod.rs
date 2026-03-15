@@ -1,10 +1,13 @@
 pub mod check;
 pub mod convert;
 pub mod dev;
+pub mod doctor;
+pub mod info;
 pub mod init;
 pub mod install;
 pub mod list;
 pub mod marketplace;
 pub mod publish;
+pub mod search;
 pub mod uninstall;
 pub mod update;

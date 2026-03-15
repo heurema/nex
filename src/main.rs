@@ -75,6 +75,25 @@ enum Commands {
     },
     /// Convert Claude Code plugin to universal format
     Convert,
+    /// Check plugin health and detect drift
+    Doctor {
+        /// Re-verify SHA256 hashes (slow)
+        #[arg(long)]
+        deep: bool,
+    },
+    /// Search plugins in registry
+    Search {
+        /// Search query (matches name and description)
+        query: Option<String>,
+        /// Filter by category
+        #[arg(long)]
+        category: Option<String>,
+    },
+    /// Show detailed plugin information
+    Info {
+        /// Plugin name
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -148,6 +167,15 @@ fn main() {
         }
         Commands::Convert => {
             commands::convert::run()
+        }
+        Commands::Doctor { deep } => {
+            commands::doctor::run(deep)
+        }
+        Commands::Search { query, category } => {
+            commands::search::run(query.as_deref(), category.as_deref())
+        }
+        Commands::Info { name } => {
+            commands::info::run(&name)
         }
     };
 
