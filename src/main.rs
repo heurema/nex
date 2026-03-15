@@ -55,6 +55,38 @@ enum Commands {
         #[command(subcommand)]
         action: MarketplaceAction,
     },
+    /// Publish plugin: compute SHA-256 and generate registry entry
+    Publish {
+        /// Plugin name
+        name: String,
+        /// Git tag to use (defaults to HEAD tag or plugin.json version)
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Manage local development symlinks
+    Dev {
+        #[command(subcommand)]
+        action: DevAction,
+    },
+    /// Scaffold a new plugin directory
+    Init {
+        /// Plugin name [a-z0-9-]+
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DevAction {
+    /// Create a symlink for local plugin development
+    Link {
+        /// Path to local plugin directory
+        path: String,
+    },
+    /// Remove a development symlink
+    Unlink {
+        /// Plugin name to unlink
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -98,6 +130,20 @@ fn main() {
                 commands::marketplace::list()
             }
         },
+        Commands::Publish { name, tag } => {
+            commands::publish::run(&name, tag.as_deref())
+        }
+        Commands::Dev { action } => match action {
+            DevAction::Link { path } => {
+                commands::dev::dev_link(&path)
+            }
+            DevAction::Unlink { name } => {
+                commands::dev::dev_unlink(&name)
+            }
+        },
+        Commands::Init { name } => {
+            commands::init::run(&name)
+        }
     };
 
     if let Err(e) = result {

@@ -1,6 +1,9 @@
 pub mod check;
+pub mod dev;
+pub mod init;
 pub mod install;
 pub mod list;
 pub mod marketplace;
+pub mod publish;
 pub mod uninstall;
 pub mod update;
