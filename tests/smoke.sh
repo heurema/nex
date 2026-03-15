@@ -11,8 +11,8 @@ FAIL=0
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-pass() { echo "PASS: $1"; ((PASS++)); }
-fail() { echo "FAIL: $1"; ((FAIL++)); }
+pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
+fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 run_test() {
     local label="$1"
@@ -30,6 +30,7 @@ run_test() {
 # ── temp environment ──────────────────────────────────────────────────────────
 
 TMPDIR_ROOT="$(mktemp -d)"
+REAL_HOME="$HOME"
 export HOME="$TMPDIR_ROOT/home"
 mkdir -p "$HOME"
 
@@ -92,14 +93,17 @@ EOF
 
 echo "=== skill7 smoke tests ==="
 
-# Build the binary once
+# Build the binary BEFORE changing HOME (rustup needs real HOME)
+MANIFEST="$(cd "$(dirname "$0")/.." && pwd)/Cargo.toml"
 BINARY="$TMPDIR_ROOT/skill7"
-if ! cargo build --quiet --manifest-path "$(dirname "$0")/../Cargo.toml" 2>/dev/null; then
-    # If build fails (e.g. missing deps in CI), skip execution tests
+if [[ -n "${CLI_BINARY:-}" ]]; then
+    cp "$CLI_BINARY" "$BINARY"
+elif ! env HOME="$REAL_HOME" cargo build --quiet --manifest-path "$MANIFEST" 2>/dev/null; then
     echo "SKIP: cargo build failed — skipping execution tests"
     exit 0
+else
+    cp "$(dirname "$MANIFEST")/target/debug/skill7" "$BINARY"
 fi
-cp "$(dirname "$0")/../target/debug/skill7" "$BINARY"
 
 # T1: install happy path
 run_test "install test-plugin" 0 \
@@ -153,12 +157,12 @@ cat > "$REGISTRY_DIR/registry.json" <<EOF
   }
 }
 EOF
-# install should proceed with warning (sha mismatch is non-fatal in v0.1)
-# but we verify the sha mismatch path runs without panic
-if "$BINARY" install bad-sha-plugin --codex 2>&1 | grep -qi "sha"; then
-    pass "bad sha256 triggers sha warning"
+# install should fail with SHA256 MISMATCH error (hard error since v0.2)
+SHA_OUTPUT=$("$BINARY" install bad-sha-plugin --codex 2>&1 || true)
+if echo "$SHA_OUTPUT" | grep -qi "mismatch"; then
+    pass "bad sha256 triggers mismatch error"
 else
-    fail "bad sha256 did not trigger sha warning"
+    fail "bad sha256 did not trigger mismatch error"
 fi
 
 # T7: error case — missing tag during install
