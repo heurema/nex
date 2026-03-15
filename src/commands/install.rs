@@ -150,16 +150,21 @@ pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, s
     // ac-005: bail if no platforms succeeded (ok_count == 0 → bail)
     // ac-007 + claude-finding-3: rollback only when ALL platforms fail (ok_count == 0)
     // claude-finding-2: do NOT save new state when rolling back — disk has old version
-    if ok_count == 0 && had_backup && backup_dir.exists() {
-        eprintln!("All platforms failed; restoring previous version...");
-        let _ = fs::remove_dir_all(&skill_dir);
-        if let Err(e) = fs::rename(&backup_dir, &skill_dir) {
-            eprintln!("Warning: could not restore backup: {e}");
-        } else {
-            eprintln!("Previous version restored from backup.");
+    if ok_count == 0 {
+        if had_backup && backup_dir.exists() {
+            eprintln!("All platforms failed; restoring previous version...");
+            let _ = fs::remove_dir_all(&skill_dir);
+            if let Err(e) = fs::rename(&backup_dir, &skill_dir) {
+                eprintln!("Warning: could not restore backup: {e}");
+            } else {
+                eprintln!("Previous version restored from backup.");
+            }
+        } else if skill_dir.exists() {
+            // Fresh install, no backup — clean up orphaned skill_dir
+            let _ = fs::remove_dir_all(&skill_dir);
         }
+        anyhow::bail!("Install failed: no platforms succeeded (0/{total})");
     }
-    if ok_count == 0 { anyhow::bail!("Install failed: no platforms succeeded ({ok_count}/{total})"); }
 
     let mut st = state::InstalledState::load(&dirs.installed_path())?;
     st.set(name.to_string(), state::InstalledPlugin {

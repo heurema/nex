@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::Path;
 
 // ac-015: Typed enums for Platform and Status
+#[allow(dead_code)] // Typed enum for future use; state currently uses String keys
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Platform {
@@ -13,6 +14,7 @@ pub enum Platform {
     Gemini,
 }
 
+#[allow(dead_code)]
 impl Platform {
     pub fn as_str(&self) -> &'static str {
         match self {

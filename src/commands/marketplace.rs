@@ -48,7 +48,12 @@ pub fn add(category: Option<&str>, all: bool) -> anyhow::Result<()> {
                 },
                 "plugins": []
             });
-            fs::write(&manifest_path, serde_json::to_string_pretty(&json)?)?;
+            // Atomic write via NamedTempFile to prevent corruption on crash
+            let mut tmp = tempfile::NamedTempFile::new_in(&manifest_dir)?;
+            tmp.write_all(serde_json::to_string_pretty(&json)?.as_bytes())?;
+            tmp.flush()?;
+            tmp.persist(&manifest_path)
+                .map_err(|e| anyhow::anyhow!("failed to persist marketplace.json: {}", e.error))?;
         }
 
         // ac-009: register marketplace in known_marketplaces.json
