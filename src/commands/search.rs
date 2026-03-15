@@ -39,8 +39,12 @@ pub fn run(query: Option<&str>, category: Option<&str>) -> anyhow::Result<()> {
             ""
         };
         let plat_count = pkg.platforms.len();
-        let desc = if pkg.description.len() > 40 {
-            format!("{}…", &pkg.description[..39])
+        let desc = if pkg.description.chars().count() > 40 {
+            let end = pkg.description.char_indices()
+                .nth(39)
+                .map(|(i, _)| i)
+                .unwrap_or(pkg.description.len());
+            format!("{}…", &pkg.description[..end])
         } else {
             pkg.description.clone()
         };

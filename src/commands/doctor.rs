@@ -2,7 +2,7 @@ use crate::core::{dirs::Dirs, registry::Registry, state::{InstalledPlugin, Insta
 use std::fs;
 use std::time::{Duration, SystemTime};
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Ok used in matches!() patterns but not constructed
 enum Severity { Ok, Warn, Error }
 
 struct Issue {
@@ -31,7 +31,7 @@ pub fn run(deep: bool) -> anyhow::Result<()> {
     }
     check_stale_lock(&dirs, &mut issues);
 
-    if state.plugins.is_empty() {
+    if state.plugins.is_empty() && issues.is_empty() {
         println!("No plugins installed. Nothing to check.");
         return Ok(());
     }
@@ -41,8 +41,10 @@ pub fn run(deep: bool) -> anyhow::Result<()> {
         .filter(|i| !matches!(i.severity, Severity::Ok))
         .count();
 
-    println!("Checking {} installed plugin{}...\n",
-        total, if total == 1 { "" } else { "s" });
+    if total > 0 {
+        println!("Checking {} installed plugin{}...\n",
+            total, if total == 1 { "" } else { "s" });
+    }
 
     // Per-plugin summary
     let mut names: Vec<&String> = state.plugins.keys().collect();
