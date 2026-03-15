@@ -38,9 +38,10 @@ pub fn add(category: Option<&str>, all: bool) -> anyhow::Result<()> {
 
         // Write minimal marketplace.json if not exists
         let manifest_path = manifest_dir.join("marketplace.json");
-        if !manifest_path.exists() {
+        let already_exists = manifest_path.exists();
+        if !already_exists {
             let json = serde_json::json!({
-                "name": format!("skill7-{cat}"),
+                "name": format!("nex-{cat}"),
                 "owner": { "name": "heurema" },
                 "metadata": {
                     "description": format!("heurema {cat} plugins"),
@@ -57,14 +58,18 @@ pub fn add(category: Option<&str>, all: bool) -> anyhow::Result<()> {
         }
 
         // ac-009: register marketplace in known_marketplaces.json
-        let marketplace_name = format!("skill7-{cat}");
+        let marketplace_name = format!("nex-{cat}");
         register_marketplace(&marketplace_name, &mp_dir, &dirs)?;
 
-        println!("Created marketplace: skill7-{cat}");
+        if already_exists {
+            println!("Marketplace already exists: nex-{cat}");
+        } else {
+            println!("Created marketplace: nex-{cat}");
+        }
         println!("  {}", mp_dir.display());
     }
 
-    println!("\nMarketplaces ready. Plugins installed via `skill7 install` will appear here.");
+    println!("\nMarketplaces ready. Plugins installed via `nex install` will appear here.");
     Ok(())
 }
 
@@ -111,7 +116,7 @@ pub fn list() -> anyhow::Result<()> {
     let marketplaces_dir = dirs.claude_plugins.join("marketplaces");
 
     if !marketplaces_dir.exists() {
-        println!("No skill7 marketplaces found. Run `skill7 marketplace add devtools`.");
+        println!("No nex marketplaces found. Run `nex marketplace add devtools`.");
         return Ok(());
     }
 
@@ -121,7 +126,7 @@ pub fn list() -> anyhow::Result<()> {
     for entry in fs::read_dir(&marketplaces_dir)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.starts_with("skill7-") {
+        if !name.starts_with("nex-") {
             continue;
         }
 

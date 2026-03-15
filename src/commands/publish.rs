@@ -60,7 +60,7 @@ fn detect_format(dir: &Path) -> anyhow::Result<PluginFormat> {
         Ok(PluginFormat::Universal)
     } else if has_cc_plugin {
         eprintln!("Detected Claude Code-only plugin (no SKILL.md or platforms/)");
-        eprintln!("Tip: run `skill7 convert` to migrate to universal format");
+        eprintln!("Tip: run `nex convert` to migrate to universal format");
         Ok(PluginFormat::ClaudeCodeOnly)
     } else {
         anyhow::bail!(

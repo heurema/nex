@@ -4,7 +4,7 @@ mod core;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "skill7", version, about = "Cross-CLI plugin distribution for AI agents")]
+#[command(name = "nex", version, about = "Cross-CLI plugin distribution for AI agents")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -93,7 +93,7 @@ enum DevAction {
 
 #[derive(Subcommand)]
 enum MarketplaceAction {
-    /// Register a skill7 marketplace category in Claude Code
+    /// Register a nex marketplace category in Claude Code
     Add {
         /// Category name (devtools, trading, creative) or --all
         category: Option<String>,
@@ -101,7 +101,7 @@ enum MarketplaceAction {
         #[arg(long)]
         all: bool,
     },
-    /// List registered skill7 marketplaces
+    /// List registered nex marketplaces
     List,
 }
 

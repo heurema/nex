@@ -19,7 +19,7 @@ impl FileLock {
 
         match file.try_lock_exclusive() {
             Ok(()) => Ok(Self { _file: file }),
-            Err(_) => anyhow::bail!("Another skill7 operation is running. Try again later."),
+            Err(_) => anyhow::bail!("Another nex operation is running. Try again later."),
         }
     }
 }

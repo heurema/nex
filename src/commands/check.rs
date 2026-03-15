@@ -32,7 +32,7 @@ pub fn run(refresh: bool) -> anyhow::Result<()> {
     }
 
     if has_updates {
-        println!("\nRun `skill7 update <name>` or `skill7 update --all` to update.");
+        println!("\nRun `nex update <name>` or `nex update --all` to update.");
     }
 
     Ok(())

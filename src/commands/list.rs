@@ -5,7 +5,7 @@ pub fn run() -> anyhow::Result<()> {
     let state = InstalledState::load(&dirs.installed_path())?;
 
     if state.plugins.is_empty() {
-        println!("No plugins installed. Run `skill7 install <name>` to get started.");
+        println!("No plugins installed. Run `nex install <name>` to get started.");
         return Ok(());
     }
 

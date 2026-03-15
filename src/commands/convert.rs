@@ -28,22 +28,28 @@ pub fn run() -> anyhow::Result<()> {
     let cc_dir = cwd.join("platforms/claude-code");
     fs::create_dir_all(&cc_dir)?;
 
-    // 2. Move CC-specific directories into platforms/claude-code/
+    // 2. Copy CC-specific directories into platforms/claude-code/, then remove originals.
+    //    Keep root .claude-plugin/ with plugin.json for publish metadata extraction.
     let cc_dirs = [".claude-plugin", "skills", "commands", "agents", "hooks"];
     for dir_name in &cc_dirs {
         let src = cwd.join(dir_name);
         let dst = cc_dir.join(dir_name);
         if src.is_dir() {
             copy_dir_recursive(&src, &dst)?;
-            fs::remove_dir_all(&src)?;
-            println!("  moved {dir_name}/ → platforms/claude-code/{dir_name}/");
+            if *dir_name == ".claude-plugin" {
+                // Keep root .claude-plugin/ so publish can extract metadata (category, etc.)
+                println!("  copied {dir_name}/ → platforms/claude-code/{dir_name}/ (root kept)");
+            } else {
+                fs::remove_dir_all(&src)?;
+                println!("  moved {dir_name}/ → platforms/claude-code/{dir_name}/");
+            }
         }
     }
 
     // 3. Generate root SKILL.md if not present
     if !cwd.join("SKILL.md").exists() {
         let skill_content = format!(
-            "# {name}\n\n{description}\n\n## Usage\n\nInstall via skill7:\n\n```bash\nskill7 install {name}\n```\n"
+            "# {name}\n\n{description}\n\n## Usage\n\nInstall via nex:\n\n```bash\nnex install {name}\n```\n"
         );
         fs::write(cwd.join("SKILL.md"), &skill_content)?;
         println!("  created SKILL.md (from plugin.json metadata)");
@@ -67,7 +73,7 @@ pub fn run() -> anyhow::Result<()> {
     println!("  platforms/claude-code/           — Claude Code plugin (moved)");
     println!("  platforms/codex/SKILL.md         — Codex skill (stub, customize)");
     println!("  platforms/gemini/SKILL.md        — Gemini skill (stub, customize)");
-    println!("\nRun `skill7 publish {name}` to generate a registry entry.");
+    println!("\nRun `nex publish {name}` to generate a registry entry.");
     Ok(())
 }
 

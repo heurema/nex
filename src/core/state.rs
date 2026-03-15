@@ -70,7 +70,7 @@ impl std::fmt::Display for Status {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlatformStatus {
     pub status: Status,
-    pub r#ref: String,  // "signum@skill7-devtools" or "~/.agents/skills/signum"
+    pub r#ref: String,  // "signum@nex-devtools" or "~/.agents/skills/signum"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,7 +109,7 @@ impl InstalledState {
                 let _ = std::fs::copy(path, &backup);
                 eprintln!("ERROR: corrupted installed.json ({e})");
                 eprintln!("  Backed up to: {}", backup.display());
-                eprintln!("  Starting with empty state. Run `skill7 install` to re-add plugins.");
+                eprintln!("  Starting with empty state. Run `nex install` to re-add plugins.");
                 Ok(Self::default())
             }
         }

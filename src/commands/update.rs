@@ -61,16 +61,22 @@ pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
                 }
             }
             (None, _) => {
-                println!("{plugin_name}: not installed, use `skill7 install {plugin_name}`");
+                eprintln!("{plugin_name}: not installed, use `nex install {plugin_name}`");
+                failed += 1;
             }
             (_, None) => {
-                println!("{plugin_name}: not found in registry");
+                eprintln!("{plugin_name}: not found in registry");
+                failed += 1;
             }
         }
     }
 
     if to_update.len() > 1 {
         println!("\nUpdated {success}/{} plugins ({failed} failed)", to_update.len());
+    }
+
+    if failed > 0 && success == 0 {
+        anyhow::bail!("update failed");
     }
 
     Ok(())

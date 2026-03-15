@@ -39,7 +39,7 @@ pub fn run(name: &str) -> anyhow::Result<()> {
                         // Use dirs.marketplace_dir to get correct path
                         let parts: Vec<&str> = ref_name.split('@').collect();
                         if parts.len() == 2 {
-                            let category = parts[1].strip_prefix("skill7-").unwrap_or(parts[1]);
+                            let category = parts[1].strip_prefix("nex-").unwrap_or(parts[1]);
                             // finding-9: validate category before passing to marketplace_dir
                             if let Ok(mp_dir) = dirs.marketplace_dir(category) {
                                 let marketplace_link = mp_dir.join("plugins").join(name);
@@ -94,7 +94,7 @@ pub fn run(name: &str) -> anyhow::Result<()> {
     if !all_ok {
         eprintln!("Warning: some platform uninstalls failed. Removing only succeeded platforms from state.");
         eprintln!("Source kept at ~/.skills/{name}/");
-        eprintln!("Run `skill7 install {name}` to re-sync or manually clean up.");
+        eprintln!("Run `nex install {name}` to re-sync or manually clean up.");
 
         // Update state: remove succeeded platforms, keep failed ones
         if let Some(mut plugin_entry) = state.plugins.get(name).cloned() {

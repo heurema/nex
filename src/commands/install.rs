@@ -213,11 +213,17 @@ fn list_tags(repo: &git2::Repository) -> String {
 }
 
 // ac-003 + codex-finding-5: symlinks in packages are REJECTED (not skipped) to prevent integrity bypass
+/// Compute SHA-256 over package files using length-prefixed encoding.
+/// Format per file: path_len (u64 LE) || path_bytes || content_len (u64 LE) || content_bytes
+/// Excludes .git/ and .signum/ directories. Matches publish's compute_sha256_git_tree.
 fn compute_sha256(dir: &Path) -> anyhow::Result<String> {
     let mut hasher = Sha256::new();
     let mut entries: Vec<_> = walkdir(dir)?
         .into_iter()
-        .filter(|p| !p.components().any(|c| c.as_os_str() == ".git"))
+        .filter(|p| !p.components().any(|c| {
+            let s = c.as_os_str();
+            s == ".git" || s == ".signum"
+        }))
         .collect();
     entries.sort();
 
@@ -225,13 +231,19 @@ fn compute_sha256(dir: &Path) -> anyhow::Result<String> {
         // ac-003: use symlink_metadata to detect symlinks
         let meta = path.symlink_metadata()?;
         if meta.file_type().is_symlink() {
-            // codex-finding-5: reject package if any symlink found — legitimate packages must not contain symlinks
+            // codex-finding-5: reject package if any symlink found
             anyhow::bail!("Package contains symlink: {} — aborting install for security", path.display());
         }
         if meta.is_file() {
             let relative = path.strip_prefix(dir)?;
-            hasher.update(relative.to_string_lossy().as_bytes());
-            hasher.update(&fs::read(&path)?);
+            let path_bytes = relative.to_string_lossy();
+            let path_bytes = path_bytes.as_bytes();
+            let content = fs::read(&path)?;
+            // Length-prefixed encoding to match publish's format
+            hasher.update((path_bytes.len() as u64).to_le_bytes());
+            hasher.update(path_bytes);
+            hasher.update((content.len() as u64).to_le_bytes());
+            hasher.update(&content);
         }
     }
 
@@ -328,7 +340,7 @@ fn install_claude_code(name: &str, category: &str, scope: &str, dirs: &Dirs) -> 
     let marketplace_json = generate_marketplace_json(category, &plugins_dir)?;
     fs::write(manifest_dir.join("marketplace.json"), marketplace_json)?;
 
-    let marketplace_name = format!("skill7-{category}");
+    let marketplace_name = format!("nex-{category}");
     register_marketplace(&marketplace_name, &marketplace_dir, dirs)?;
 
     let validate = std::process::Command::new("claude")
@@ -381,7 +393,7 @@ fn generate_marketplace_json(category: &str, plugins_dir: &Path) -> anyhow::Resu
     }
 
     let marketplace = serde_json::json!({
-        "name": format!("skill7-{category}"),
+        "name": format!("nex-{category}"),
         "owner": { "name": "heurema" },
         "metadata": {
             "description": format!("heurema {category} plugins")

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::fs;
 
 pub struct Dirs {
-    pub skill7_home: PathBuf,     // ~/.skill7/
+    pub nex_home: PathBuf,        // ~/.nex/
     pub skills_store: PathBuf,    // ~/.skills/
     pub claude_plugins: PathBuf,  // ~/.claude/plugins/
     pub agents_skills: PathBuf,   // ~/.agents/skills/
@@ -12,7 +12,7 @@ impl Dirs {
     pub fn new() -> anyhow::Result<Self> {
         let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
         let d = Self {
-            skill7_home: home.join(".skill7"),
+            nex_home: home.join(".nex"),
             skills_store: home.join(".skills"),
             claude_plugins: home.join(".claude").join("plugins"),
             agents_skills: home.join(".agents").join("skills"),
@@ -21,22 +21,22 @@ impl Dirs {
     }
 
     pub fn ensure_dirs(&self) -> anyhow::Result<()> {
-        fs::create_dir_all(&self.skill7_home)?;
+        fs::create_dir_all(&self.nex_home)?;
         fs::create_dir_all(&self.skills_store)?;
         fs::create_dir_all(&self.agents_skills)?;
         Ok(())
     }
 
     pub fn registry_path(&self) -> PathBuf {
-        self.skill7_home.join("registry.json")
+        self.nex_home.join("registry.json")
     }
 
     pub fn installed_path(&self) -> PathBuf {
-        self.skill7_home.join("installed.json")
+        self.nex_home.join("installed.json")
     }
 
     pub fn lock_path(&self) -> PathBuf {
-        self.skill7_home.join("skill7.lock")
+        self.nex_home.join("nex.lock")
     }
 
     // ac-002: validate category against [a-z0-9-]+ to prevent path traversal
@@ -44,7 +44,7 @@ impl Dirs {
         validate_name(category)?;
         Ok(self.claude_plugins
             .join("marketplaces")
-            .join(format!("skill7-{category}")))
+            .join(format!("nex-{category}")))
     }
 }
 
