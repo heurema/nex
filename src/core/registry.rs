@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-const REGISTRY_URL: &str = "https://raw.githubusercontent.com/heurema/nex/main/registry-v2.json";
+const REGISTRY_URL: &str = "https://raw.githubusercontent.com/heurema/nex/master/registry-v2.json";
 const CACHE_TTL: Duration = Duration::from_secs(7 * 24 * 3600); // 7 days
 
 #[derive(Debug, Deserialize, Serialize)]
