@@ -73,6 +73,8 @@ enum Commands {
         /// Plugin name [a-z0-9-]+
         name: String,
     },
+    /// Convert Claude Code plugin to universal format
+    Convert,
 }
 
 #[derive(Subcommand)]
@@ -143,6 +145,9 @@ fn main() {
         },
         Commands::Init { name } => {
             commands::init::run(&name)
+        }
+        Commands::Convert => {
+            commands::convert::run()
         }
     };
 

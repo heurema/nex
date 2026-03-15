@@ -7,7 +7,7 @@ pub fn run(name: &str, tag: Option<&str>) -> anyhow::Result<()> {
     validate_name(name)?;
 
     let cwd = std::env::current_dir()?;
-    validate_structure(&cwd)?;
+    let format = detect_format(&cwd)?;
 
     let repo = git2::Repository::open(&cwd)
         .map_err(|e| anyhow::anyhow!("not a git repository: {e}"))?;
@@ -16,7 +16,10 @@ pub fn run(name: &str, tag: Option<&str>) -> anyhow::Result<()> {
     let version = resolve_version(&repo, &cwd, tag)?;
     let sha256 = compute_sha256_git_tree(&repo)?;
     let (description, category) = extract_metadata(&cwd)?;
-    let platforms = detect_platforms(&cwd);
+    let platforms = match format {
+        PluginFormat::Universal => detect_platforms(&cwd),
+        PluginFormat::ClaudeCodeOnly => vec!["claude-code".to_string()],
+    };
 
     let entry = serde_json::json!({
         "name": name,
@@ -32,24 +35,40 @@ pub fn run(name: &str, tag: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_structure(dir: &Path) -> anyhow::Result<()> {
-    let skill_md = dir.join("SKILL.md");
-    if !skill_md.exists() {
-        anyhow::bail!("SKILL.md not found at plugin root — required for publish");
-    }
-    let platforms_dir = dir.join("platforms");
-    if !platforms_dir.exists() || !platforms_dir.is_dir() {
-        anyhow::bail!("platforms/ directory not found — required for publish");
-    }
-    // Require at least one recognized platform subdirectory
-    let recognized = ["claude-code", "codex", "gemini"];
-    let has_platform = recognized.iter().any(|p| platforms_dir.join(p).is_dir());
-    if !has_platform {
+/// Detect plugin format: Universal (SKILL.md + platforms/) or CC-only (.claude-plugin/)
+enum PluginFormat {
+    /// SKILL.md root + platforms/ with at least one recognized subdir
+    Universal,
+    /// Claude Code only: .claude-plugin/plugin.json present, no platforms/
+    ClaudeCodeOnly,
+}
+
+fn detect_format(dir: &Path) -> anyhow::Result<PluginFormat> {
+    let has_skill_md = dir.join("SKILL.md").exists();
+    let has_platforms = dir.join("platforms").is_dir();
+    let has_cc_plugin = dir.join(".claude-plugin/plugin.json").exists();
+
+    if has_skill_md && has_platforms {
+        // Verify at least one recognized platform
+        let recognized = ["claude-code", "codex", "gemini"];
+        let has_any = recognized.iter().any(|p| dir.join("platforms").join(p).is_dir());
+        if !has_any {
+            anyhow::bail!(
+                "platforms/ has no recognized subdirectory (claude-code, codex, gemini)"
+            );
+        }
+        Ok(PluginFormat::Universal)
+    } else if has_cc_plugin {
+        eprintln!("Detected Claude Code-only plugin (no SKILL.md or platforms/)");
+        eprintln!("Tip: run `skill7 convert` to migrate to universal format");
+        Ok(PluginFormat::ClaudeCodeOnly)
+    } else {
         anyhow::bail!(
-            "platforms/ has no recognized subdirectory (claude-code, codex, gemini) — required for publish"
+            "Not a valid plugin. Need either:\n  \
+             - SKILL.md + platforms/ (universal format)\n  \
+             - .claude-plugin/plugin.json (Claude Code format)"
         );
     }
-    Ok(())
 }
 
 fn extract_origin_url(repo: &git2::Repository) -> anyhow::Result<String> {
