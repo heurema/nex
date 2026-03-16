@@ -94,6 +94,36 @@ enum Commands {
         /// Plugin name
         name: String,
     },
+    /// Automated plugin release pipeline (dry-run by default)
+    Release {
+        /// Bump level: major, minor, or patch (default: patch)
+        #[arg(default_value = "patch")]
+        level: String,
+        /// Actually perform the release (default: dry-run)
+        #[arg(long)]
+        execute: bool,
+        /// Explicit version (overrides LEVEL)
+        #[arg(long, value_name = "VER")]
+        version: Option<String>,
+        /// Override marketplace from config
+        #[arg(long, value_name = "NAME")]
+        marketplace: Option<String>,
+        /// Override tag format (e.g. '{version}-custom')
+        #[arg(long, value_name = "FMT")]
+        tag_format: Option<String>,
+        /// Skip marketplace propagation step
+        #[arg(long)]
+        no_propagate: bool,
+        /// Skip changelog step
+        #[arg(long)]
+        no_changelog: bool,
+        /// Plugin directory (default: current directory)
+        #[arg(long, value_name = "DIR")]
+        path: Option<String>,
+        /// Show detailed output
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -176,6 +206,19 @@ fn main() {
         }
         Commands::Info { name } => {
             commands::info::run(&name)
+        }
+        Commands::Release { level, execute, version, marketplace, tag_format, no_propagate, no_changelog, path, verbose } => {
+            commands::release::run(
+                &level,
+                execute,
+                version.as_deref(),
+                marketplace.as_deref(),
+                tag_format.as_deref(),
+                no_propagate,
+                no_changelog,
+                path.as_deref(),
+                verbose,
+            )
         }
     };
 

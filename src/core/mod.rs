@@ -1,6 +1,9 @@
+pub mod changelog;
+pub mod config;
 pub mod dirs;
 pub mod hash;
 pub mod lock;
+pub mod marketplace;
 pub mod platform;
 pub mod registry;
 pub mod state;

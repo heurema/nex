@@ -8,6 +8,7 @@ pub mod install;
 pub mod list;
 pub mod marketplace;
 pub mod publish;
+pub mod release;
 pub mod search;
 pub mod uninstall;
 pub mod update;

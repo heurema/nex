@@ -1,6 +1,6 @@
 [package]
 name = "nex"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "Cross-CLI plugin distribution for AI agents"
 license = "MIT"
@@ -17,8 +17,11 @@ colored = "3"
 fs2 = "0.4"
 anyhow = "1"
 tempfile = "3"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["clock"] }
 which = "7"
+toml = "0.8"
+semver = "1"
+pathdiff = "0.2"
 
 [profile.release]
 strip = true
