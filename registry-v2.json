@@ -4,7 +4,7 @@
     "signum": {
       "repo": "https://github.com/heurema/signum",
       "version": "4.8.0",
-      "sha256": "cbaa7bd3cb0a435ebecd33233e4681257b95ab751f4d51fa40ae8b75dd055ea3",
+      "sha256": "d1688ee0df8b04bb219ccbf77d3742adfcd60358cdd081b3f003db2dcaeb44cc",
       "description": "Evidence-driven development pipeline with multi-model code review",
       "platforms": ["claude-code", "codex"],
       "category": "devtools"
