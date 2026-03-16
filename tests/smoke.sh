@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke.sh — skill7 CLI smoke tests
+# smoke.sh — nex CLI smoke tests
 # Uses a temporary HOME to avoid polluting real state.
 # Tests: install happy path, uninstall happy path, error: missing plugin, bad sha, missing tag.
 
@@ -38,7 +38,7 @@ cleanup() { rm -rf "$TMPDIR_ROOT"; }
 trap cleanup EXIT
 
 # Create temp registry with a test plugin
-REGISTRY_DIR="$HOME/.skill7"
+REGISTRY_DIR="$HOME/.nex"
 mkdir -p "$REGISTRY_DIR"
 mkdir -p "$HOME/.skills"
 mkdir -p "$HOME/.agents/skills"
@@ -91,18 +91,18 @@ EOF
 
 # ── Test suite ────────────────────────────────────────────────────────────────
 
-echo "=== skill7 smoke tests ==="
+echo "=== nex smoke tests ==="
 
 # Build the binary BEFORE changing HOME (rustup needs real HOME)
 MANIFEST="$(cd "$(dirname "$0")/.." && pwd)/Cargo.toml"
-BINARY="$TMPDIR_ROOT/skill7"
+BINARY="$TMPDIR_ROOT/nex"
 if [[ -n "${CLI_BINARY:-}" ]]; then
     cp "$CLI_BINARY" "$BINARY"
 elif ! env HOME="$REAL_HOME" cargo build --quiet --manifest-path "$MANIFEST" 2>/dev/null; then
     echo "SKIP: cargo build failed — skipping execution tests"
     exit 0
 else
-    cp "$(dirname "$MANIFEST")/target/debug/skill7" "$BINARY"
+    cp "$(dirname "$MANIFEST")/target/debug/nex" "$BINARY"
 fi
 
 # T1: install happy path
@@ -201,6 +201,57 @@ if ! "$BINARY" install notag-plugin --codex >/dev/null 2>&1; then
 else
     fail "install with missing tag should fail"
 fi
+
+# ── v0.6.0: doctor, search, info ──────────────────────────────────────────────
+
+# Restore registry with test-plugin for doctor/search/info tests
+cat > "$REGISTRY_DIR/registry.json" <<EOF
+{
+  "version": 2,
+  "packages": {
+    "test-plugin": {
+      "name": "test-plugin",
+      "version": "0.1.0",
+      "repo": "file://$PLUGIN_SRC",
+      "sha256": "skip-dev",
+      "category": "devtools",
+      "description": "smoke test plugin",
+      "platforms": ["codex", "claude-code", "gemini"]
+    }
+  }
+}
+EOF
+
+# Re-install test-plugin for doctor/search/info
+"$BINARY" install test-plugin --codex >/dev/null 2>&1 || true
+
+# T8: doctor passes with installed plugin
+run_test "doctor passes with installed plugin" 0 \
+    "$BINARY" doctor
+
+# T9: search shows installed plugin
+SEARCH_OUTPUT=$("$BINARY" search test-plugin 2>&1 || true)
+if echo "$SEARCH_OUTPUT" | grep -q "test-plugin"; then
+    pass "search finds test-plugin"
+else
+    fail "search did not find test-plugin"
+fi
+
+# T10: search with no match
+SEARCH_NONE=$("$BINARY" search zzz-nonexistent 2>&1 || true)
+if echo "$SEARCH_NONE" | grep -q "No plugins matching"; then
+    pass "search no-match message"
+else
+    fail "search missing no-match message"
+fi
+
+# T11: info shows plugin details
+run_test "info test-plugin" 0 \
+    "$BINARY" info test-plugin
+
+# T12: info nonexistent fails
+run_test "info nonexistent fails" 1 \
+    "$BINARY" info nonexistent
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 

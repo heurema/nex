@@ -1,6 +1,5 @@
-use crate::core::{dirs::{Dirs, validate_name}, lock::FileLock, platform, registry::Registry, state};
+use crate::core::{dirs::{Dirs, validate_name}, hash::compute_sha256, lock::FileLock, platform, registry::Registry, state};
 use chrono::Utc; // ac-013: chrono crate for portable datetime
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -213,63 +212,7 @@ fn list_tags(repo: &git2::Repository) -> String {
 }
 
 // ac-003 + codex-finding-5: symlinks in packages are REJECTED (not skipped) to prevent integrity bypass
-/// Compute SHA-256 over package files using length-prefixed encoding.
-/// Format per file: path_len (u64 LE) || path_bytes || content_len (u64 LE) || content_bytes
-/// Excludes .git/ and .signum/ directories. Matches publish's compute_sha256_git_tree.
-fn compute_sha256(dir: &Path) -> anyhow::Result<String> {
-    let mut hasher = Sha256::new();
-    let mut entries: Vec<_> = walkdir(dir)?
-        .into_iter()
-        .filter(|p| !p.components().any(|c| {
-            let s = c.as_os_str();
-            s == ".git" || s == ".signum"
-        }))
-        .collect();
-    entries.sort();
-
-    for path in entries {
-        // ac-003: use symlink_metadata to detect symlinks
-        let meta = path.symlink_metadata()?;
-        if meta.file_type().is_symlink() {
-            // codex-finding-5: reject package if any symlink found
-            anyhow::bail!("Package contains symlink: {} — aborting install for security", path.display());
-        }
-        if meta.is_file() {
-            let relative = path.strip_prefix(dir)?;
-            let path_bytes = relative.to_string_lossy();
-            let path_bytes = path_bytes.as_bytes();
-            let content = fs::read(&path)?;
-            // Length-prefixed encoding to match publish's format
-            hasher.update((path_bytes.len() as u64).to_le_bytes());
-            hasher.update(path_bytes);
-            hasher.update((content.len() as u64).to_le_bytes());
-            hasher.update(&content);
-        }
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn walkdir(dir: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    let mut result = Vec::new();
-    if dir.is_dir() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            // ac-003: use symlink_metadata to avoid following symlinks
-            let meta = path.symlink_metadata()?;
-            if meta.file_type().is_symlink() {
-                // Include the symlink path so compute_sha256 can reject it
-                result.push(path);
-            } else if meta.is_dir() {
-                result.extend(walkdir(&path)?);
-            } else {
-                result.push(path);
-            }
-        }
-    }
-    Ok(result)
-}
+// compute_sha256 and walkdir moved to core::hash
 
 fn install_claude_code(name: &str, category: &str, scope: &str, dirs: &Dirs) -> anyhow::Result<String> {
     // ac-002: validate category (marketplace_dir returns Result now)

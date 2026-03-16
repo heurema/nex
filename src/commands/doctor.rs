@@ -1,4 +1,4 @@
-use crate::core::{dirs::Dirs, registry::Registry, state::{InstalledPlugin, InstalledState, Status}};
+use crate::core::{dirs::Dirs, hash, registry::Registry, state::{InstalledPlugin, InstalledState, Status}};
 use std::fs;
 use std::time::{Duration, SystemTime};
 
@@ -196,13 +196,33 @@ fn check_stale_lock(dirs: &Dirs, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_sha256(name: &str, plugin: &InstalledPlugin, dirs: &Dirs, _issues: &mut Vec<Issue>) {
+fn check_sha256(name: &str, plugin: &InstalledPlugin, dirs: &Dirs, issues: &mut Vec<Issue>) {
     let skill_dir = dirs.skills_store.join(name);
     if !skill_dir.exists() {
         return; // already caught by check_skill_dir
     }
-    // Full SHA256 re-verify requires extracting compute_sha256 to core
-    // For now, log that deep check was requested but not yet implemented
-    let _ = plugin;
-    eprintln!("  {name}: SHA256 deep check not yet implemented (planned for v0.7.0)");
+    match hash::compute_sha256(&skill_dir) {
+        Ok(current) => {
+            if current != plugin.sha256 {
+                issues.push(Issue {
+                    plugin: name.to_string(),
+                    check: "sha256",
+                    severity: Severity::Warn,
+                    message: format!("SHA256 drift (installed: {}…, current: {}…)",
+                        &plugin.sha256[..8.min(plugin.sha256.len())],
+                        &current[..8]),
+                    fix: format!("nex install {name}"),
+                });
+            }
+        }
+        Err(e) => {
+            issues.push(Issue {
+                plugin: name.to_string(),
+                check: "sha256",
+                severity: Severity::Warn,
+                message: format!("SHA256 check failed: {e}"),
+                fix: String::new(),
+            });
+        }
+    }
 }
