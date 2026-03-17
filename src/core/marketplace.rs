@@ -222,18 +222,28 @@ fn git_push_ref(
     remote_name: &str,
     refspec: &str,
 ) -> anyhow::Result<()> {
-    let mut remote = repo
-        .find_remote(remote_name)
+    // Verify remote exists via git2
+    repo.find_remote(remote_name)
         .map_err(|e| anyhow::anyhow!("remote '{}' not found: {e}", remote_name))?;
 
-    let mut push_options = git2::PushOptions::new();
-    let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(credential_callback);
-    push_options.remote_callbacks(callbacks);
+    // Use system git for push — better SSH auth on macOS (keychain, agent)
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("bare repository"))?;
 
-    remote
-        .push(&[refspec], Some(&mut push_options))
-        .map_err(|e| anyhow::anyhow!("push '{}' failed: {e}", refspec))?;
+    let status = std::process::Command::new("git")
+        .args(["push", remote_name, refspec])
+        .current_dir(workdir)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run git push: {e}"))?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "push '{}' failed (exit {})",
+            refspec,
+            status.code().unwrap_or(-1)
+        );
+    }
     Ok(())
 }
 

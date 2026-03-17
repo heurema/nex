@@ -80,6 +80,12 @@ enum Commands {
         /// Re-verify SHA256 hashes (slow)
         #[arg(long)]
         deep: bool,
+        /// Auto-fix detected issues (stale files, release drift)
+        #[arg(long)]
+        fix: bool,
+        /// Only check specific plugins (repeatable)
+        #[arg(long, value_name = "NAME")]
+        plugin: Vec<String>,
     },
     /// Search plugins in registry
     Search {
@@ -226,8 +232,9 @@ fn main() {
             ProfileAction::Apply { name } => commands::profile::run_apply(&name),
             ProfileAction::Activate { name } => commands::profile::run_activate(&name),
         },
-        Commands::Doctor { deep } => {
-            commands::doctor::run(deep)
+        Commands::Doctor { deep, fix, plugin } => {
+            let filter = if plugin.is_empty() { None } else { Some(plugin) };
+            commands::doctor::run(deep, fix, filter.as_deref())
         }
         Commands::Search { query, category } => {
             commands::search::run(query.as_deref(), category.as_deref())

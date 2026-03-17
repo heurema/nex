@@ -795,31 +795,27 @@ fn git_push_exact(
     tag_refspec: &str,
     _verbose: bool,
 ) -> anyhow::Result<()> {
-    let mut remote = repo
-        .find_remote(remote_name)
+    // Verify remote exists via git2
+    repo.find_remote(remote_name)
         .map_err(|e| anyhow::anyhow!("remote '{}' not found: {e}", remote_name))?;
 
-    let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(|_url, username, _allowed| {
-        if let Some(user) = username {
-            if let Ok(cred) = git2::Cred::ssh_key_from_agent(user) {
-                return Ok(cred);
-            }
-        }
-        git2::Cred::default()
-    });
+    // Use system git for push — better SSH auth on macOS (keychain, agent)
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("bare repository"))?;
 
-    let mut push_options = git2::PushOptions::new();
-    push_options.remote_callbacks(callbacks);
+    let status = Command::new("git")
+        .args(["push", remote_name, branch_refspec, tag_refspec])
+        .current_dir(workdir)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run git push: {e}"))?;
 
-    // Push both the branch and the tag as exact refs
-    remote
-        .push(
-            &[branch_refspec, tag_refspec],
-            Some(&mut push_options),
-        )
-        .map_err(|e| anyhow::anyhow!("git push failed: {e}"))?;
-
+    if !status.success() {
+        anyhow::bail!(
+            "git push failed (exit {})",
+            status.code().unwrap_or(-1)
+        );
+    }
     Ok(())
 }
 
