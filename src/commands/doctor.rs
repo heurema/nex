@@ -1,5 +1,7 @@
-use crate::core::{dirs::Dirs, hash, registry::Registry, state::{InstalledPlugin, InstalledState, Status}};
+use crate::core::{cc_adapter, dirs::Dirs, hash, registry::Registry, state::{InstalledPlugin, InstalledState, Status}};
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 #[allow(dead_code)] // Ok used in matches!() patterns but not constructed
@@ -31,12 +33,23 @@ pub fn run(deep: bool) -> anyhow::Result<()> {
     }
     check_stale_lock(&dirs, &mut issues);
 
-    if state.plugins.is_empty() && issues.is_empty() {
+    // Emporium-aware checks
+    let catalog = cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path()).unwrap_or_default();
+    let cc_cache = cc_adapter::scan_cc_cache(&dirs.cc_cache_dir());
+    let dev_symlinks = cc_adapter::scan_dev_symlinks(&dirs.claude_plugins);
+
+    check_nex_devtools(&dirs, &mut issues);
+    check_emporium_drift(&catalog, &cc_cache, &mut issues);
+    check_duplicate_plugins(&catalog, &dev_symlinks, &dirs, &mut issues);
+    check_stale_dev_symlinks(&dev_symlinks, &mut issues);
+    check_orphan_cache(&catalog, &dirs, &mut issues);
+
+    if state.plugins.is_empty() && catalog.is_empty() && issues.is_empty() {
         println!("No plugins installed. Nothing to check.");
         return Ok(());
     }
 
-    let total = state.plugins.len();
+    let total = state.plugins.len() + catalog.len();
     let issue_count = issues.iter()
         .filter(|i| !matches!(i.severity, Severity::Ok))
         .count();
@@ -222,6 +235,119 @@ fn check_sha256(name: &str, plugin: &InstalledPlugin, dirs: &Dirs, issues: &mut 
                 severity: Severity::Warn,
                 message: format!("SHA256 check failed: {e}"),
                 fix: String::new(),
+            });
+        }
+    }
+}
+
+fn check_nex_devtools(dirs: &Dirs, issues: &mut Vec<Issue>) {
+    let nex_devtools = dirs.claude_plugins.join("marketplaces").join("nex-devtools");
+    if nex_devtools.exists() {
+        issues.push(Issue {
+            plugin: String::new(),
+            check: "nex-devtools",
+            severity: Severity::Warn,
+            message: "nex-devtools marketplace exists (deprecated)".to_string(),
+            fix: "rm -rf ~/.claude/plugins/marketplaces/nex-devtools".to_string(),
+        });
+    }
+}
+
+fn check_emporium_drift(
+    catalog: &HashMap<String, cc_adapter::CatalogPlugin>,
+    cc_cache: &HashMap<String, String>,
+    issues: &mut Vec<Issue>,
+) {
+    for (name, cat) in catalog {
+        if cat.version.is_empty() {
+            continue;
+        }
+        if let Some(cached) = cc_cache.get(name) {
+            if *cached != cat.version {
+                issues.push(Issue {
+                    plugin: name.clone(),
+                    check: "emporium_drift",
+                    severity: Severity::Warn,
+                    message: format!("emporium=v{} but CC cache=v{cached}", cat.version),
+                    fix: "restart `claude` to pull updated cache".to_string(),
+                });
+            }
+        }
+    }
+}
+
+fn check_duplicate_plugins(
+    catalog: &HashMap<String, cc_adapter::CatalogPlugin>,
+    dev_symlinks: &HashMap<String, PathBuf>,
+    dirs: &Dirs,
+    issues: &mut Vec<Issue>,
+) {
+    for name in catalog.keys() {
+        let mut locations = Vec::new();
+        if dev_symlinks.contains_key(name) {
+            locations.push("dev symlink".to_string());
+        }
+        let emporium_cache = dirs.cc_cache_dir().join("emporium").join(name);
+        if emporium_cache.exists() {
+            locations.push("emporium cache".to_string());
+        }
+        let nex_devtools = dirs
+            .claude_plugins
+            .join("marketplaces")
+            .join("nex-devtools")
+            .join("plugins")
+            .join(name);
+        if nex_devtools.exists() {
+            locations.push("nex-devtools".to_string());
+        }
+        if locations.len() > 1 {
+            issues.push(Issue {
+                plugin: name.clone(),
+                check: "duplicate",
+                severity: Severity::Warn,
+                message: format!(
+                    "found in {} locations: {}",
+                    locations.len(),
+                    locations.join(", ")
+                ),
+                fix: "remove duplicates, keep emporium as primary".to_string(),
+            });
+        }
+    }
+}
+
+fn check_stale_dev_symlinks(dev_symlinks: &HashMap<String, PathBuf>, issues: &mut Vec<Issue>) {
+    for (name, target) in dev_symlinks {
+        if !target.exists() {
+            issues.push(Issue {
+                plugin: name.clone(),
+                check: "stale_symlink",
+                severity: Severity::Warn,
+                message: format!("dev symlink target missing: {}", target.display()),
+                fix: format!("rm ~/.claude/plugins/{name}"),
+            });
+        }
+    }
+}
+
+fn check_orphan_cache(
+    catalog: &HashMap<String, cc_adapter::CatalogPlugin>,
+    dirs: &Dirs,
+    issues: &mut Vec<Issue>,
+) {
+    let emporium_cache = dirs.cc_cache_dir().join("emporium");
+    let Ok(entries) = fs::read_dir(&emporium_cache) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !catalog.contains_key(&name) {
+            issues.push(Issue {
+                plugin: name.clone(),
+                check: "orphan_cache",
+                severity: Severity::Warn,
+                message: "in CC cache but not in emporium catalog".to_string(),
+                fix: format!("rm -rf ~/.claude/plugins/cache/emporium/{name}"),
             });
         }
     }
