@@ -22,6 +22,7 @@ which = "7"
 toml = "0.8"
 semver = "1"
 pathdiff = "0.2"
+shellexpand = "3.1.2"
 
 [profile.release]
 strip = true
