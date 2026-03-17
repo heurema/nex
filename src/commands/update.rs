@@ -1,4 +1,4 @@
-use crate::core::{dirs::Dirs, lock::FileLock, registry::Registry, state::InstalledState};
+use crate::core::{cc_adapter, dirs::Dirs, lock::FileLock, registry::Registry, state::InstalledState};
 
 pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
@@ -22,6 +22,19 @@ pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
 
     if to_update.is_empty() {
         println!("Everything is up to date.");
+
+        // Show CC cache drift info for emporium plugins
+        let catalog = cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path()).unwrap_or_default();
+        let cc_cache = cc_adapter::scan_cc_cache(&dirs.cc_cache_dir());
+        for (name, cat) in &catalog {
+            if cat.version.is_empty() { continue; }
+            if let Some(cached) = cc_cache.get(name) {
+                if *cached != cat.version {
+                    println!("{name}: emporium=v{} but CC cache=v{cached}. Restart `claude` to pull update.", cat.version);
+                }
+            }
+        }
+
         return Ok(());
     }
 

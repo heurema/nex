@@ -48,10 +48,7 @@ impl Dirs {
     }
 
     pub fn cc_installed_plugins_path(&self) -> PathBuf {
-        self.claude_plugins
-            .parent()
-            .unwrap_or(&self.claude_plugins)
-            .join("installed_plugins.json")
+        self.claude_plugins.join("installed_plugins.json")
     }
 
     pub fn cc_settings_path(&self) -> PathBuf {
