@@ -72,16 +72,24 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
     let global_cfg = config::load_global(&dirs.nex_home)?;
     check_release_drift(&dev_symlinks, &dirs, &catalog, &global_cfg, &mut issues);
 
-    // Apply plugin filter: keep only issues matching specified plugins
+    // Apply plugin filter: keep only issues for specified plugins (drop global issues too)
     if let Some(names) = filter {
         issues.retain(|i| {
-            i.plugin.is_empty() || names.iter().any(|n| n == &i.plugin)
+            names.iter().any(|n| n == &i.plugin)
         });
     }
 
     // Collect all unique plugin names for output
+    // When filtering, only include names that actually exist (have issues or are in installed state/dev symlinks)
     let mut all_names: Vec<String> = if let Some(names) = filter {
-        names.to_vec()
+        names.iter()
+            .filter(|n| {
+                state.plugins.contains_key(n.as_str())
+                    || dev_symlinks.contains_key(n.as_str())
+                    || issues.iter().any(|i| &i.plugin == *n)
+            })
+            .cloned()
+            .collect()
     } else {
         let mut names: Vec<String> = state.plugins.keys().cloned().collect();
         for issue in &issues {
@@ -354,6 +362,7 @@ fn fix_tag_and_propagate(
     );
 
     // Propagate to marketplace
+    let mut propagate_failed = false;
     if let Some(ref mp_name) = resolved.marketplace {
         if let Some(ref mp_cfg) = resolved.marketplace_config {
             let entry = resolved
@@ -365,15 +374,18 @@ fn fix_tag_and_propagate(
                 mp_cfg.clone(),
                 resolved.git_remote.clone(),
             );
-            match marketplace::propagate(&mp, &plugin_name, entry, &version, &tag, false) {
-                Ok(()) => {}
-                Err(e) => eprintln!("    \x1b[33m[WARN]\x1b[0m PROPAGATE failed: {e}"),
+            if let Err(e) = marketplace::propagate(&mp, &plugin_name, entry, &version, &tag, false) {
+                eprintln!("    \x1b[33m[WARN]\x1b[0m PROPAGATE failed: {e}");
+                propagate_failed = true;
             }
         }
     } else {
         println!("    --   PROPAGATE skipped (no marketplace configured)");
     }
 
+    if propagate_failed {
+        anyhow::bail!("tag+push ok but marketplace propagation failed");
+    }
     Ok(())
 }
 
@@ -457,7 +469,7 @@ fn check_release_drift(
                 severity: Severity::Warn,
                 message: format!("v{version} has no git tag (expected {tag})"),
                 fix: format!(
-                    "cd {} && nex release --version {version} --execute",
+                    "cd {} && nex doctor --fix --plugin {plugin_name}",
                     plugin_root.display()
                 ),
                 fix_action: FixAction::TagAndPropagate {
