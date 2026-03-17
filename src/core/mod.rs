@@ -1,3 +1,4 @@
+pub mod cc_adapter;
 pub mod changelog;
 pub mod config;
 pub mod dirs;

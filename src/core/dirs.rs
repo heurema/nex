@@ -46,6 +46,49 @@ impl Dirs {
             .join("marketplaces")
             .join(format!("nex-{category}")))
     }
+
+    pub fn cc_installed_plugins_path(&self) -> PathBuf {
+        self.claude_plugins
+            .parent()
+            .unwrap_or(&self.claude_plugins)
+            .join("installed_plugins.json")
+    }
+
+    pub fn cc_settings_path(&self) -> PathBuf {
+        self.claude_plugins
+            .parent()
+            .unwrap_or(&self.claude_plugins)
+            .join("settings.json")
+    }
+
+    pub fn cc_profile_settings_path(&self, profile_name: &str) -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_default()
+            .join(".claude-profiles")
+            .join(profile_name)
+            .join("config")
+            .join("settings.json")
+    }
+
+    pub fn cc_cache_dir(&self) -> PathBuf {
+        self.claude_plugins.join("cache")
+    }
+
+    pub fn emporium_marketplace_path(&self) -> PathBuf {
+        self.claude_plugins
+            .join("marketplaces")
+            .join("emporium")
+            .join(".claude-plugin")
+            .join("marketplace.json")
+    }
+
+    pub fn nex_profiles_dir(&self) -> PathBuf {
+        self.nex_home.join("profiles")
+    }
+
+    pub fn active_profile_path(&self) -> PathBuf {
+        self.nex_home.join("active_profile")
+    }
 }
 
 /// Validate that a name matches [a-z0-9-]+ (no slashes, dots, or special chars)
