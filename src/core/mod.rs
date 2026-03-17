@@ -2,6 +2,7 @@ pub mod cc_adapter;
 pub mod changelog;
 pub mod config;
 pub mod dirs;
+pub mod docs_sync;
 pub mod hash;
 pub mod lock;
 pub mod marketplace;

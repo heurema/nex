@@ -1,6 +1,7 @@
 use crate::core::{
     changelog,
     config::{self, expand_placeholders, ResolvedConfig},
+    docs_sync,
     marketplace::{self, MarketplaceRef},
 };
 use chrono::Datelike;
@@ -202,6 +203,8 @@ pub fn run(
         );
     }
 
+    println!("    → DOCS        README.md version, SKILL.md description sync");
+
     let commit_msg = expand_placeholders(
         &resolved.commit_format,
         &plugin_name,
@@ -260,16 +263,20 @@ pub fn run(
             let now = chrono::Local::now();
             format!("{}-{:02}-{:02}", now.year(), now.month(), now.day())
         };
-        if resolved.changelog_mode == "auto" {
-            eprintln!(
-                "warning: changelog.mode = 'auto' is not implemented in v0.1; using 'template'"
-            );
-        }
-        let changed = changelog::insert_template_section(
-            &changelog_path,
-            &next_version.to_string(),
-            &today,
-        )?;
+        let changed = if resolved.changelog_mode == "auto" {
+            changelog::insert_auto_section(
+                &changelog_path,
+                &plugin_root,
+                &next_version.to_string(),
+                &today,
+            )?
+        } else {
+            changelog::insert_template_section(
+                &changelog_path,
+                &next_version.to_string(),
+                &today,
+            )?
+        };
         if changed {
             modified_files.push(resolved.changelog_filename.clone());
             println!("  [OK] CHANGELOG   inserted [{}] section", next_version);
@@ -278,6 +285,30 @@ pub fn run(
         } else {
             println!("  --   CHANGELOG   section already exists");
         }
+    }
+
+    // DOCS SYNC
+    if docs_sync::sync_readme_version(&plugin_root, &current_version.to_string(), &next_version.to_string())? {
+        modified_files.push("README.md".to_string());
+        println!("  [OK] DOCS        README.md version updated");
+    }
+    if docs_sync::sync_skill_descriptions(&plugin_root)? {
+        // Find which SKILL.md files were modified
+        let skills_dir = plugin_root.join("skills");
+        if skills_dir.exists() {
+            for entry in std::fs::read_dir(&skills_dir).into_iter().flatten().flatten() {
+                let skill_md = entry.path().join("SKILL.md");
+                if skill_md.exists() {
+                    let rel = skill_md.strip_prefix(&plugin_root)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if !rel.is_empty() && !modified_files.contains(&rel) {
+                        modified_files.push(rel);
+                    }
+                }
+            }
+        }
+        println!("  [OK] DOCS        SKILL.md descriptions synced");
     }
 
     // COMMIT
