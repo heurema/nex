@@ -94,6 +94,13 @@ enum Commands {
         /// Plugin name
         name: String,
     },
+    /// Cross-platform plugin health view
+    Status,
+    /// Manage nex profiles
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
     /// Automated plugin release pipeline (dry-run by default)
     Release {
         /// Bump level: major, minor, or patch (default: patch)
@@ -124,6 +131,18 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// List all profiles
+    List,
+    /// Show profile details
+    Show { name: String },
+    /// Apply profile (create/remove Codex/Gemini symlinks)
+    Apply { name: String },
+    /// Set active profile without applying
+    Activate { name: String },
 }
 
 #[derive(Subcommand)]
@@ -198,6 +217,15 @@ fn main() {
         Commands::Convert => {
             commands::convert::run()
         }
+        Commands::Status => {
+            commands::status::run()
+        }
+        Commands::Profile { action } => match action {
+            ProfileAction::List => commands::profile::run_list(),
+            ProfileAction::Show { name } => commands::profile::run_show(&name),
+            ProfileAction::Apply { name } => commands::profile::run_apply(&name),
+            ProfileAction::Activate { name } => commands::profile::run_activate(&name),
+        },
         Commands::Doctor { deep } => {
             commands::doctor::run(deep)
         }
