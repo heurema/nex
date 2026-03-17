@@ -2,7 +2,7 @@
 name = "nex"
 version = "0.8.0"
 edition = "2024"
-description = "Cross-CLI plugin distribution for AI agents"
+description = "Cross-CLI skill portability for AI agents — install once, use in Claude Code, Codex, and Gemini"
 license = "MIT"
 
 [dependencies]
