@@ -2,6 +2,7 @@ use crate::core::{
     cc_adapter,
     config::{self, expand_placeholders},
     dirs::Dirs,
+    git,
     hash,
     marketplace::{self, MarketplaceRef},
     registry::Registry,
@@ -352,7 +353,7 @@ fn fix_tag_and_propagate(
 
     // Detect branch
     let branch = if resolved.git_branch.is_empty() {
-        detect_branch_from_repo(&repo, &resolved.git_remote)
+        git::resolve_push_branch(&repo, &resolved.git_remote)
     } else {
         resolved.git_branch.clone()
     };
@@ -593,27 +594,6 @@ fn count_ahead(repo: &git2::Repository, ref_name: &str) -> usize {
 }
 
 // ── Git helpers ──────────────────────────────────────────────────────────────
-
-fn detect_branch_from_repo(repo: &git2::Repository, remote: &str) -> String {
-    let ref_name = format!("refs/remotes/{remote}/HEAD");
-    if let Ok(reference) = repo.find_reference(&ref_name) {
-        if let Some(target) = reference.symbolic_target() {
-            if let Some(branch) = target.rsplit('/').next() {
-                if !branch.is_empty() {
-                    return branch.to_string();
-                }
-            }
-        }
-    }
-    if let Ok(head) = repo.head() {
-        if let Some(name) = head.shorthand() {
-            if !name.is_empty() && name != "HEAD" {
-                return name.to_string();
-            }
-        }
-    }
-    "main".to_string()
-}
 
 fn git_push_exact(
     repo: &git2::Repository,
