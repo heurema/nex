@@ -37,7 +37,6 @@ pub struct PublishEntry {
     pub description: String,
     pub platforms: Vec<String>,
     pub category: String,
-    #[allow(dead_code)] // wired to registry in Stage 1
     pub release_class: String,
 }
 
@@ -103,6 +102,7 @@ pub fn write_to_registry(entry: &PublishEntry, registry_path: &Path) -> anyhow::
             description: entry.description.clone(),
             platforms: entry.platforms.clone(),
             category: entry.category.clone(),
+            release_class: Some(entry.release_class.clone()),
             rubric_score: None,
             rubric_max: None,
         },

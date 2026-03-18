@@ -202,6 +202,8 @@ pub fn install_inner(
             installed_at: chrono_now(),
             source: skill_dir.to_string_lossy().to_string(),
             platforms: platform_statuses,
+            origin: state::Origin::Managed,
+            last_applied_profile: None,
         },
     );
     st.save(&dirs.installed_path())?;
