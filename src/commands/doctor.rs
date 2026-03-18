@@ -24,9 +24,13 @@ enum FixAction {
     RemoveFile(PathBuf),
     RemoveDir(PathBuf),
     /// Tag current HEAD and propagate to marketplace (version already set).
-    TagAndPropagate { plugin_dir: PathBuf },
+    TagAndPropagate {
+        plugin_dir: PathBuf,
+    },
     /// Bump version and run full release pipeline.
-    BumpAndRelease { plugin_dir: PathBuf },
+    BumpAndRelease {
+        plugin_dir: PathBuf,
+    },
 }
 
 struct Issue {
@@ -48,7 +52,7 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
     for (name, plugin) in &state.plugins {
         check_skill_dir(name, &dirs, &mut issues);
         check_cc_symlinks(name, plugin, &dirs, &mut issues);
-        check_agentskills_symlinks(name, plugin, &dirs, &mut issues);
+        check_agent_skill_links(name, plugin, &dirs, &mut issues);
         check_registry_orphan(name, &registry, &mut issues);
         if deep {
             check_sha256(name, plugin, &dirs, &mut issues);
@@ -57,10 +61,11 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
     check_stale_lock(&dirs, &mut issues);
 
     // Emporium-aware checks
-    let catalog = cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path())
-        .unwrap_or_default();
+    let catalog =
+        cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path()).unwrap_or_default();
     let cc_cache = cc_adapter::scan_cc_cache(&dirs.cc_cache_dir());
     let dev_symlinks = cc_adapter::scan_dev_symlinks(&dirs.claude_plugins);
+    let live_views = cc_adapter::load_plugin_views(&dirs)?;
 
     check_nex_devtools(&dirs, &mut issues);
     check_emporium_drift(&catalog, &cc_cache, &mut issues);
@@ -74,18 +79,19 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
 
     // Apply plugin filter: keep only issues for specified plugins (drop global issues too)
     if let Some(names) = filter {
-        issues.retain(|i| {
-            names.iter().any(|n| n == &i.plugin)
-        });
+        issues.retain(|i| names.iter().any(|n| n == &i.plugin));
     }
 
-    // Collect all unique plugin names for output
-    // When filtering, only include names that actually exist (have issues or are in installed state/dev symlinks)
+    // Collect all unique plugin names for output.
+    // In filtered mode, also allow plugins discovered from live Claude/Codex state.
     let mut all_names: Vec<String> = if let Some(names) = filter {
-        names.iter()
+        names
+            .iter()
             .filter(|n| {
                 state.plugins.contains_key(n.as_str())
-                    || dev_symlinks.contains_key(n.as_str())
+                    || live_views
+                        .iter()
+                        .any(|view| view.name == **n && view.is_live_discovered())
                     || issues.iter().any(|i| &i.plugin == *n)
             })
             .cloned()
@@ -171,12 +177,14 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
             return Ok(());
         }
 
-        println!(
-            "\n{fixed} fixed, {remaining} remaining (manual fix needed)."
-        );
+        println!("\n{fixed} fixed, {remaining} remaining (manual fix needed).");
         let unfixable: Vec<&Issue> = issues
             .iter()
-            .filter(|i| !matches!(i.severity, Severity::Ok) && matches!(i.fix_action, FixAction::None) && !i.fix.is_empty())
+            .filter(|i| {
+                !matches!(i.severity, Severity::Ok)
+                    && matches!(i.fix_action, FixAction::None)
+                    && !i.fix.is_empty()
+            })
             .collect();
         if !unfixable.is_empty() {
             println!("\nManual fixes:");
@@ -293,7 +301,15 @@ fn fix_tag_and_propagate(
         .ok_or_else(|| anyhow::anyhow!("cannot read plugin.json in {}", plugin_dir.display()))?;
 
     let plugin_cfg = config::load_plugin(plugin_dir)?;
-    let resolved = config::resolve(global_cfg, &plugin_cfg, None, None, false, false, Some(plugin_dir))?;
+    let resolved = config::resolve(
+        global_cfg,
+        &plugin_cfg,
+        None,
+        None,
+        false,
+        false,
+        Some(plugin_dir),
+    )?;
 
     let tag = expand_placeholders(&resolved.tag_format, &plugin_name, &version, "", "");
 
@@ -325,13 +341,7 @@ fn fix_tag_and_propagate(
 
     if resolved.tag_annotated {
         let sig = repo.signature()?;
-        let msg = expand_placeholders(
-            &resolved.tag_message,
-            &plugin_name,
-            &version,
-            &tag,
-            "",
-        );
+        let msg = expand_placeholders(&resolved.tag_message, &plugin_name, &version, &tag, "");
         repo.tag(&tag, &head, &sig, &msg, false)
             .map_err(|e| anyhow::anyhow!("git tag '{tag}' failed: {e}"))?;
     } else {
@@ -350,12 +360,7 @@ fn fix_tag_and_propagate(
     // Push exact refs
     let tag_refspec = format!("refs/tags/{tag}");
     let branch_refspec = format!("HEAD:refs/heads/{branch}");
-    git_push_exact(
-        &repo,
-        &resolved.git_remote,
-        &branch_refspec,
-        &tag_refspec,
-    )?;
+    git_push_exact(&repo, &resolved.git_remote, &branch_refspec, &tag_refspec)?;
     println!(
         "    \x1b[32m[OK]\x1b[0m PUSH   {}/{}",
         resolved.git_remote, branch
@@ -369,16 +374,23 @@ fn fix_tag_and_propagate(
                 .marketplace_entry
                 .as_deref()
                 .unwrap_or(&plugin_name);
-            let mp = MarketplaceRef::new(
-                mp_name.clone(),
-                mp_cfg.clone(),
-                resolved.git_remote.clone(),
-            );
+            let mp =
+                MarketplaceRef::new(mp_name.clone(), mp_cfg.clone(), resolved.git_remote.clone());
             // Check marketplace is clean before propagating (avoid committing stale staged changes)
             if let Ok(false) = marketplace::is_clean(&mp) {
-                eprintln!("    \x1b[33m[WARN]\x1b[0m marketplace has uncommitted changes; PROPAGATE skipped");
+                eprintln!(
+                    "    \x1b[33m[WARN]\x1b[0m marketplace has uncommitted changes; PROPAGATE skipped"
+                );
                 propagate_failed = true;
-            } else if let Err(e) = marketplace::propagate(&mp, &plugin_name, entry, &version, &tag, false, Some(plugin_dir)) {
+            } else if let Err(e) = marketplace::propagate(
+                &mp,
+                &plugin_name,
+                entry,
+                &version,
+                &tag,
+                false,
+                Some(plugin_dir),
+            ) {
                 eprintln!("    \x1b[33m[WARN]\x1b[0m PROPAGATE failed: {e}");
                 propagate_failed = true;
             }
@@ -395,8 +407,8 @@ fn fix_tag_and_propagate(
 
 /// Bump version and run full release pipeline via `nex release patch --execute`.
 fn fix_bump_and_release(plugin_dir: &Path) -> anyhow::Result<()> {
-    let nex_exe = std::env::current_exe()
-        .map_err(|e| anyhow::anyhow!("cannot find nex executable: {e}"))?;
+    let nex_exe =
+        std::env::current_exe().map_err(|e| anyhow::anyhow!("cannot find nex executable: {e}"))?;
 
     let status = std::process::Command::new(&nex_exe)
         .args(["release", "patch", "--execute", "--path"])
@@ -448,20 +460,20 @@ fn check_release_drift(
 
         // Load configs (defaults if no release.toml)
         let plugin_cfg = config::load_plugin(&plugin_root).unwrap_or_default();
-        let Ok(resolved_cfg) =
-            config::resolve(global_cfg, &plugin_cfg, None, None, false, false, Some(&plugin_root))
-        else {
+        let Ok(resolved_cfg) = config::resolve(
+            global_cfg,
+            &plugin_cfg,
+            None,
+            None,
+            false,
+            false,
+            Some(&plugin_root),
+        ) else {
             continue;
         };
 
         // Compute expected tag for current version
-        let tag = expand_placeholders(
-            &resolved_cfg.tag_format,
-            &plugin_name,
-            &version,
-            "",
-            "",
-        );
+        let tag = expand_placeholders(&resolved_cfg.tag_format, &plugin_name, &version, "", "");
         let tag_ref = format!("refs/tags/{tag}");
         let tag_exists = repo.find_reference(&tag_ref).is_ok();
 
@@ -625,10 +637,7 @@ fn git_push_exact(
         .map_err(|e| anyhow::anyhow!("failed to run git push: {e}"))?;
 
     if !status.success() {
-        anyhow::bail!(
-            "git push failed (exit {})",
-            status.code().unwrap_or(-1)
-        );
+        anyhow::bail!("git push failed (exit {})", status.code().unwrap_or(-1));
     }
     Ok(())
 }
@@ -649,12 +658,7 @@ fn check_skill_dir(name: &str, dirs: &Dirs, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_cc_symlinks(
-    name: &str,
-    plugin: &InstalledPlugin,
-    dirs: &Dirs,
-    issues: &mut Vec<Issue>,
-) {
+fn check_cc_symlinks(name: &str, plugin: &InstalledPlugin, dirs: &Dirs, issues: &mut Vec<Issue>) {
     let cc_status = match plugin.platforms.get("claude-code") {
         Some(s) if s.status == Status::Ok => s,
         _ => return,
@@ -683,40 +687,66 @@ fn check_cc_symlinks(
     }
 }
 
-fn check_agentskills_symlinks(
+fn check_agent_skill_links(
     name: &str,
     plugin: &InstalledPlugin,
     dirs: &Dirs,
     issues: &mut Vec<Issue>,
 ) {
-    let has_agent_platform = plugin
-        .platforms
-        .iter()
-        .any(|(p, s)| (p == "codex" || p == "gemini") && s.status == Status::Ok);
+    for (platform, status) in &plugin.platforms {
+        if status.status != Status::Ok {
+            continue;
+        }
 
-    if !has_agent_platform {
-        return;
-    }
+        let (check_name, base_dir, missing_message) = match platform.as_str() {
+            "codex" => (
+                "codex_skill",
+                &dirs.codex_skills,
+                "~/.codex/skills/ entry missing",
+            ),
+            "gemini" => (
+                "gemini_skill",
+                &dirs.agents_skills,
+                "~/.agents/skills/ entry missing",
+            ),
+            _ => continue,
+        };
 
-    let link = dirs.agents_skills.join(name);
-    if !link.exists() {
-        issues.push(Issue {
-            plugin: name.to_string(),
-            check: "agentskills",
-            severity: Severity::Warn,
-            message: "~/.agents/skills/ symlink missing".to_string(),
-            fix: format!("nex install {name}"),
-            fix_action: FixAction::None,
-        });
-    } else if link.is_symlink() && fs::metadata(&link).is_err() {
-        issues.push(Issue {
-            plugin: name.to_string(),
-            check: "agentskills",
-            severity: Severity::Warn,
-            message: "symlink target does not resolve".to_string(),
-            fix: format!("nex install {name}"),
-            fix_action: FixAction::None,
-        });
+        let link = base_dir.join(name);
+        if !link.exists() {
+            if platform == "codex"
+                && !status.r#ref.is_empty()
+                && std::path::Path::new(&status.r#ref).starts_with(&dirs.agents_skills)
+                && std::path::Path::new(&status.r#ref).exists()
+            {
+                issues.push(Issue {
+                    plugin: name.to_string(),
+                    check: "legacy_codex_path",
+                    severity: Severity::Warn,
+                    message: "Codex still linked via legacy ~/.agents/skills path".to_string(),
+                    fix: format!("nex install {name}"),
+                    fix_action: FixAction::None,
+                });
+                continue;
+            }
+            issues.push(Issue {
+                plugin: name.to_string(),
+                check: check_name,
+                severity: Severity::Warn,
+                message: missing_message.to_string(),
+                fix: format!("nex install {name}"),
+                fix_action: FixAction::None,
+            });
+        } else if link.is_symlink() && fs::metadata(&link).is_err() {
+            issues.push(Issue {
+                plugin: name.to_string(),
+                check: check_name,
+                severity: Severity::Warn,
+                message: "symlink target does not resolve".to_string(),
+                fix: format!("nex install {name}"),
+                fix_action: FixAction::None,
+            });
+        }
     }
 }
 
@@ -879,7 +909,11 @@ fn check_duplicate_plugins(
     }
 }
 
-fn check_stale_dev_symlinks(dev_symlinks: &HashMap<String, PathBuf>, dirs: &Dirs, issues: &mut Vec<Issue>) {
+fn check_stale_dev_symlinks(
+    dev_symlinks: &HashMap<String, PathBuf>,
+    dirs: &Dirs,
+    issues: &mut Vec<Issue>,
+) {
     for (name, target) in dev_symlinks {
         if !target.exists() {
             let link_path = dirs.claude_plugins.join(name);

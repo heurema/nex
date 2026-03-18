@@ -21,7 +21,7 @@ nex manages AI agent plugins across Claude Code, Codex, and Gemini from a single
 ```
 registry ─→ nex install ─→ ~/.skills/{name}/
                           ├─→ Claude Code (marketplace symlink)
-                          ├─→ Codex (~/.agents/skills/ symlink)
+                          ├─→ Codex (~/.codex/skills/ symlink)
                           └─→ Gemini (~/.agents/skills/ symlink)
 ```
 
@@ -99,6 +99,15 @@ PREFLIGHT → BUMP → CHANGELOG → DOCS → COMMIT → TAG → PUSH → PROPAG
 `nex ship` auto-detects bump level from conventional commits:
 `feat:` → minor, `fix:` → patch, `BREAKING` → major.
 
+### Discovery model
+
+nex combines two views of plugin state:
+
+- **nex-managed state** from `~/.nex/installed.json`
+- **Live discovery** from Claude Code cache/marketplaces, `~/.codex/skills/`, and `~/.agents/skills/`
+
+This keeps `list`, `check`, `status`, `info`, `search`, and `doctor --plugin` aligned even when a plugin was installed outside `nex`.
+
 ### Doctor
 
 14 health checks across all installed plugins:
@@ -108,6 +117,7 @@ PREFLIGHT → BUMP → CHANGELOG → DOCS → COMMIT → TAG → PUSH → PROPAG
 - Stale locks, orphan cache, duplicates
 - **Release drift** — untagged versions, unreleased commits
 - **Marketplace ref** — stale emporium references
+- **Legacy Codex path** — warns when Codex is still linked via `~/.agents/skills/`
 
 `--fix` auto-applies: remove stale files, create tags, push, propagate.
 `--plugin <name>` filters to a specific plugin.

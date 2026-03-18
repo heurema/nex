@@ -41,6 +41,7 @@ trap cleanup EXIT
 REGISTRY_DIR="$HOME/.nex"
 mkdir -p "$REGISTRY_DIR"
 mkdir -p "$HOME/.skills"
+mkdir -p "$HOME/.codex/skills"
 mkdir -p "$HOME/.agents/skills"
 
 # Create a test plugin source tree in a temp bare git repo
@@ -116,6 +117,13 @@ else
     fail "installed.json not found after install"
 fi
 
+# T2b: verify Codex link created in ~/.codex/skills
+if [[ -L "$HOME/.codex/skills/test-plugin" ]]; then
+    pass "codex symlink created in ~/.codex/skills"
+else
+    fail "codex symlink not created in ~/.codex/skills"
+fi
+
 # T3: uninstall happy path — plugin is installed, uninstall should succeed
 run_test "uninstall test-plugin" 0 \
     "$BINARY" uninstall test-plugin
@@ -129,6 +137,13 @@ if [[ -f "$REGISTRY_DIR/installed.json" ]]; then
     fi
 else
     pass "installed.json cleared after uninstall"
+fi
+
+# T4b: verify Codex link removed from ~/.codex/skills
+if [[ -e "$HOME/.codex/skills/test-plugin" || -L "$HOME/.codex/skills/test-plugin" ]]; then
+    fail "codex symlink still present after uninstall"
+else
+    pass "codex symlink removed after uninstall"
 fi
 
 # T5: error case — uninstall missing (not installed) plugin
