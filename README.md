@@ -1,8 +1,31 @@
 # nex
 
-Cross-CLI plugin distribution for AI agents. Install once, use in Claude Code, Codex, and Gemini.
+<div align="center">
 
-Single Rust binary that manages plugin installation, health checks, and releases across all three AI CLI platforms.
+**Cross-CLI plugin distribution for AI agents**
+
+![Rust](https://img.shields.io/badge/Rust-CLI-5b21b6?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.11.0-5b21b6?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-5b21b6?style=flat-square)
+
+```bash
+cargo install --git https://github.com/heurema/nex.git --locked
+```
+
+</div>
+
+## What it does
+
+nex manages AI agent plugins across Claude Code, Codex, and Gemini from a single CLI. Install once — symlinks, marketplace entries, and agent skill configs are handled automatically.
+
+```
+registry ─→ nex install ─→ ~/.skills/{name}/
+                          ├─→ Claude Code (marketplace symlink)
+                          ├─→ Codex (~/.agents/skills/ symlink)
+                          └─→ Gemini (~/.agents/skills/ symlink)
+```
+
+For plugin authors, nex handles the full release lifecycle: version bump, changelog, tag, push, marketplace propagation, and registry publish — in one command.
 
 ## Install
 
@@ -10,71 +33,109 @@ Single Rust binary that manages plugin installation, health checks, and releases
 cargo install --git https://github.com/heurema/nex.git --locked
 ```
 
-Or download from [releases](https://github.com/heurema/nex/releases).
+<details>
+<summary>Build from source</summary>
+
+```bash
+git clone https://github.com/heurema/nex.git
+cd nex
+cargo build --release
+cp target/release/nex ~/.local/bin/
+```
+
+</details>
 
 ## Quick start
 
 ```bash
-nex install signum              # install a plugin
-nex doctor                      # health check all plugins
-nex ship --execute              # auto-detect bump level, release
+nex install signum        # install a plugin
+nex doctor                # health check all plugins
+nex ship --execute        # auto-detect bump, release
 ```
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
 | `nex install <name>` | Install a plugin for detected CLIs |
-| `nex uninstall <name>` | Remove a plugin from all platforms |
+| `nex uninstall <name>` | Remove from all platforms |
 | `nex list` | List installed plugins |
+| `nex search <query>` | Search registry |
+| `nex info <name>` | Show detailed plugin info |
 | `nex check` | Check for available updates |
-| `nex update <name>` | Update a plugin to latest version |
-| `nex search <query>` | Search plugins in registry |
-| `nex info <name>` | Show detailed plugin information |
-| `nex status` | Cross-platform plugin health view |
-| `nex doctor` | Check plugin health and detect drift |
-| `nex doctor --fix` | Auto-fix detected issues |
-| `nex doctor --plugin <name>` | Check specific plugin only |
-| `nex init <name>` | Scaffold a new plugin directory |
-| `nex convert` | Convert Claude Code plugin to universal format |
-| `nex publish <name>` | Compute SHA-256, update local registry |
-| `nex dev link <path>` | Create dev symlink for local development |
-| `nex dev unlink <name>` | Remove a dev symlink |
-| `nex release [level]` | Release pipeline (dry-run by default) |
-| `nex release --auto --execute` | Auto-detect bump level and release |
-| `nex ship` | Alias for `release --auto` |
-| `nex ship --execute` | Auto-detect and release in one command |
-| `nex marketplace add <cat>` | Register a marketplace category |
-| `nex profile list/apply` | Manage plugin profiles |
+| `nex update <name>` | Update to latest version |
+| `nex status` | Cross-platform health view |
+| `nex doctor` | Health check + drift detection |
+| `nex doctor --fix` | Auto-fix issues (stale files, missing tags) |
+| `nex init <name>` | Scaffold a new plugin |
+| `nex convert` | Convert CC plugin to universal format |
+| `nex publish <name>` | Compute SHA-256, update registry |
+| `nex dev link <path>` | Symlink for local development |
+| `nex dev unlink <name>` | Remove dev symlink |
+| `nex release [level]` | Release pipeline (dry-run default) |
+| `nex ship` | Auto-detect bump + release |
+| `nex ship --execute` | Ship it |
+| `nex marketplace add` | Register marketplace category |
+| `nex profile apply <name>` | Switch plugin profile |
 
-## Release pipeline
+## Architecture
 
-`nex release` and `nex ship` run a full release pipeline:
+### Release pipeline
+
+`nex ship` and `nex release` run a 9-stage pipeline:
 
 ```
 PREFLIGHT → BUMP → CHANGELOG → DOCS → COMMIT → TAG → PUSH → PROPAGATE → PUBLISH
 ```
 
-- **BUMP** — update version in plugin.json or Cargo.toml
-- **CHANGELOG** — insert version section (template or auto from git log)
+- **BUMP** — version in plugin.json or Cargo.toml
+- **CHANGELOG** — insert section (template or auto from git log)
 - **DOCS** — sync README version refs, SKILL.md descriptions
-- **COMMIT** — stage and commit all changes
-- **TAG** — create git tag (lightweight or annotated)
-- **PUSH** — push branch + tag (exact refs, never `--tags`)
+- **COMMIT + TAG** — atomic release commit + lightweight/annotated tag
+- **PUSH** — exact refs (never `--tags`)
 - **PROPAGATE** — update marketplace manifest (auto-adds new plugins)
 - **PUBLISH** — update local registry with SHA-256
 
-### Auto-detect bump level
+`nex ship` auto-detects bump level from conventional commits:
+`feat:` → minor, `fix:` → patch, `BREAKING` → major.
 
-`nex ship` parses conventional commits since last tag:
+### Doctor
 
-- `feat:` → minor
-- `fix:`, `chore:`, `docs:` → patch
-- `BREAKING` / `breaking change` → major
+14 health checks across all installed plugins:
 
-### Configuration
+- Skill directories, symlinks, registry consistency
+- SHA-256 integrity (`--deep`)
+- Stale locks, orphan cache, duplicates
+- **Release drift** — untagged versions, unreleased commits
+- **Marketplace ref** — stale emporium references
 
-Global: `~/.nex/config.toml`
+`--fix` auto-applies: remove stale files, create tags, push, propagate.
+`--plugin <name>` filters to a specific plugin.
+
+### Plugin format
+
+**Universal** (recommended):
+```
+my-plugin/
+  SKILL.md
+  .claude-plugin/plugin.json
+  platforms/
+    claude-code/
+    codex/
+    gemini/
+```
+
+**Claude Code only** (convertible via `nex convert`):
+```
+my-plugin/
+  .claude-plugin/plugin.json
+  commands/
+  skills/
+```
+
+## Configuration
+
+Global config: `~/.nex/config.toml`
 
 ```toml
 [git]
@@ -86,6 +147,7 @@ format = "v{version}"
 [marketplaces.emporium]
 path = "~/path/to/emporium"
 manifest = ".claude-plugin/marketplace.json"
+commit_format = "bump {name} ref to v{version}"
 ```
 
 Per-project: `.nex/release.toml`
@@ -108,46 +170,32 @@ path = "Cargo.toml"
 format = "toml"
 ```
 
-## Doctor
+## Requirements
 
-`nex doctor` runs health checks across all installed plugins:
+- Rust 1.85+ (edition 2024)
+- macOS or Linux
+- git
+- Claude Code, Codex CLI, or Gemini CLI (at least one)
 
-- Skill directory existence
-- Claude Code marketplace symlinks
-- Codex/Gemini agent skill symlinks
-- Registry consistency
-- SHA-256 integrity (with `--deep`)
-- Stale locks, orphan cache, duplicate plugins
-- **Release drift** — detects untagged versions and unreleased commits
-- **Marketplace ref** — detects stale emporium references
+## Privacy
 
-`--fix` auto-applies: remove stale files, create missing tags, push, propagate to marketplace.
+nex runs entirely on your machine. Registry fetches go to GitHub raw content (public). No telemetry, no accounts, no cloud sync.
 
-## Plugin format
+## Feedback
 
-nex supports two plugin formats:
+Found a bug? File an issue at [heurema/nex](https://github.com/heurema/nex/issues) or use [Reporter](https://github.com/heurema/reporter) from Claude Code:
 
-**Universal** (recommended):
 ```
-my-plugin/
-  SKILL.md
-  .claude-plugin/plugin.json
-  platforms/
-    claude-code/
-    codex/
-    gemini/
+/report bug
 ```
 
-**Claude Code only:**
-```
-my-plugin/
-  .claude-plugin/plugin.json
-  commands/
-  skills/
-```
+## See also
 
-Convert with `nex convert`.
+- [emporium](https://github.com/heurema/emporium) — heurema plugin marketplace
+- [signum](https://github.com/heurema/signum) — contract-first AI dev pipeline
+- [herald](https://github.com/heurema/herald) — local-first news digest
+- [arbiter](https://github.com/heurema/arbiter) — multi-AI orchestrator
 
 ## License
 
-MIT
+[MIT](LICENSE)
