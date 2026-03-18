@@ -2,16 +2,10 @@ use crate::core::{cc_adapter, dirs::Dirs, profiles};
 
 pub fn run() -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
-
-    let catalog = cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path())?;
-    let cc_cache = cc_adapter::scan_cc_cache(&dirs.cc_cache_dir());
-    let cc_installed = cc_adapter::load_cc_installed(&dirs.cc_installed_plugins_path());
     let dev_symlinks = cc_adapter::scan_dev_symlinks(&dirs.claude_plugins);
-    let agent_skills = cc_adapter::scan_agent_skills(&dirs.agents_skills);
-
-    let views = cc_adapter::build_plugin_views(
-        &catalog, &cc_cache, &cc_installed, &dev_symlinks, &agent_skills,
-    );
+    let views = cc_adapter::load_plugin_views(&dirs)?;
+    let codex_skills = cc_adapter::scan_codex_skills(&dirs.codex_skills);
+    let gemini_skills = cc_adapter::scan_gemini_skills(&dirs.agents_skills);
 
     let active = profiles::get_active_profile(&dirs.active_profile_path());
 
@@ -42,7 +36,8 @@ pub fn run() -> anyhow::Result<()> {
             heurema_enabled,
             official_enabled
         );
-        println!("  Codex/Gemini skills:  {}", agent_skills.len());
+        println!("  Codex skills:         {}", codex_skills.len());
+        println!("  Gemini skills:        {}", gemini_skills.len());
         println!("  Dev overrides:        {}", dev_symlinks.len());
 
         let drift: Vec<_> = views

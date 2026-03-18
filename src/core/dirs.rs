@@ -1,20 +1,23 @@
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 pub struct Dirs {
-    pub nex_home: PathBuf,        // ~/.nex/
-    pub skills_store: PathBuf,    // ~/.skills/
-    pub claude_plugins: PathBuf,  // ~/.claude/plugins/
-    pub agents_skills: PathBuf,   // ~/.agents/skills/
+    pub nex_home: PathBuf,       // ~/.nex/
+    pub skills_store: PathBuf,   // ~/.skills/
+    pub claude_plugins: PathBuf, // ~/.claude/plugins/
+    pub codex_skills: PathBuf,   // ~/.codex/skills/
+    pub agents_skills: PathBuf,  // ~/.agents/skills/ (Gemini)
 }
 
 impl Dirs {
     pub fn new() -> anyhow::Result<Self> {
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
         let d = Self {
             nex_home: home.join(".nex"),
             skills_store: home.join(".skills"),
             claude_plugins: home.join(".claude").join("plugins"),
+            codex_skills: home.join(".codex").join("skills"),
             agents_skills: home.join(".agents").join("skills"),
         };
         Ok(d)
@@ -23,6 +26,7 @@ impl Dirs {
     pub fn ensure_dirs(&self) -> anyhow::Result<()> {
         fs::create_dir_all(&self.nex_home)?;
         fs::create_dir_all(&self.skills_store)?;
+        fs::create_dir_all(&self.codex_skills)?;
         fs::create_dir_all(&self.agents_skills)?;
         Ok(())
     }
@@ -42,7 +46,8 @@ impl Dirs {
     // ac-002: validate category against [a-z0-9-]+ to prevent path traversal
     pub fn marketplace_dir(&self, category: &str) -> anyhow::Result<PathBuf> {
         validate_name(category)?;
-        Ok(self.claude_plugins
+        Ok(self
+            .claude_plugins
             .join("marketplaces")
             .join(format!("nex-{category}")))
     }
@@ -93,7 +98,10 @@ pub fn validate_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty() {
         anyhow::bail!("name must not be empty");
     }
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         anyhow::bail!(
             "invalid name '{}': only lowercase letters, digits, and hyphens are allowed [a-z0-9-]",
             name

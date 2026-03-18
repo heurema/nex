@@ -1,11 +1,24 @@
-use crate::core::{dirs::{Dirs, validate_name}, hash::compute_sha256, lock::FileLock, platform, registry::Registry, state};
+use crate::core::{
+    dirs::{Dirs, validate_name},
+    hash::compute_sha256,
+    lock::FileLock,
+    platform,
+    registry::Registry,
+    state,
+};
 use chrono::Utc; // ac-013: chrono crate for portable datetime
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-pub fn run(name: &str, claude_code: bool, codex: bool, gemini: bool, scope: &str) -> anyhow::Result<()> {
+pub fn run(
+    name: &str,
+    claude_code: bool,
+    codex: bool,
+    gemini: bool,
+    scope: &str,
+) -> anyhow::Result<()> {
     // ac-001: validate plugin name against [a-z0-9-]+
     validate_name(name)?;
 
@@ -18,11 +31,19 @@ pub fn run(name: &str, claude_code: bool, codex: bool, gemini: bool, scope: &str
 
 /// Inner install logic — does not acquire the lock.
 /// Called by run() (which holds the lock) and by update::run() (which also holds the lock).
-pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, scope: &str, dirs: &Dirs) -> anyhow::Result<()> {
+pub fn install_inner(
+    name: &str,
+    claude_code: bool,
+    codex: bool,
+    gemini: bool,
+    scope: &str,
+    dirs: &Dirs,
+) -> anyhow::Result<()> {
     // Fix 1: validate name inside install_inner so update path also validates
     validate_name(name)?;
     let registry = Registry::load(&dirs.registry_path(), false)?;
-    let pkg = registry.get(name)
+    let pkg = registry
+        .get(name)
         .ok_or_else(|| anyhow::anyhow!("Package '{name}' not found in registry"))?;
 
     let detected = platform::detect_platforms();
@@ -32,7 +53,8 @@ pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, s
     }
 
     // ac-008: filter targets by pkg.platforms from registry
-    let targets: Vec<platform::Platform> = targets.into_iter()
+    let targets: Vec<platform::Platform> = targets
+        .into_iter()
         .filter(|t| pkg.platforms.iter().any(|p| p == t.label()))
         .collect();
     if targets.is_empty() {
@@ -43,8 +65,15 @@ pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, s
         );
     }
 
-    println!("Installing {name} v{} for: {}", pkg.version,
-        targets.iter().map(|p| p.label()).collect::<Vec<_>>().join(", "));
+    println!(
+        "Installing {name} v{} for: {}",
+        pkg.version,
+        targets
+            .iter()
+            .map(|p| p.label())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     // PREFLIGHT
     if targets.contains(&platform::Platform::ClaudeCode) {
@@ -65,7 +94,8 @@ pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, s
         anyhow::bail!(
             "SHA256 MISMATCH — aborting install!\n  Expected: {}\n  Got:      {}\n  \
              This may indicate a tampered package or uncommitted changes.",
-            pkg.sha256, computed_sha
+            pkg.sha256,
+            computed_sha
         );
     } else {
         println!("SHA256 verified ✓");
@@ -86,64 +116,62 @@ pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, s
         false
     };
     if let Err(e) = fs::rename(&clone_path, &skill_dir) {
-        if backup_dir.exists() { // restore: move backup back to skill_dir on commit failure
+        if backup_dir.exists() {
+            // restore: move backup back to skill_dir on commit failure
             let _ = fs::rename(&backup_dir, &skill_dir);
         }
-        anyhow::bail!("Failed to move package to ~/.skills/{name}: {e}. Previous version restored.");
+        anyhow::bail!(
+            "Failed to move package to ~/.skills/{name}: {e}. Previous version restored."
+        );
     }
 
     // PER-PLATFORM install
     let mut platform_statuses: HashMap<String, state::PlatformStatus> = HashMap::new();
-    let mut agentskills_linked = false;
 
     for target in &targets {
         let result = match target {
-            platform::Platform::ClaudeCode => {
-                install_claude_code(name, &pkg.category, scope, dirs)
-            }
+            platform::Platform::ClaudeCode => install_claude_code(name, &pkg.category, scope, dirs),
             platform::Platform::Codex | platform::Platform::Gemini => {
-                // Both share ~/.agents/skills/ — install once
-                if agentskills_linked {
-                    let link = dirs.agents_skills.join(name);
-                    Ok(link.to_string_lossy().to_string())
-                } else {
-                    let result = install_agentskills(name, target, dirs);
-                    if result.is_ok() {
-                        agentskills_linked = true;
-                    }
-                    result
-                }
+                install_agent_skill(name, target, dirs)
             }
         };
 
         match result {
             Ok(ref_str) => {
                 println!("  {} ✓", target.label());
-                platform_statuses.insert(target.label().to_string(), state::PlatformStatus {
-                    status: state::Status::Ok,
-                    r#ref: ref_str,
-                    error: None,
-                    scope: if *target == platform::Platform::ClaudeCode {
-                        Some(scope.to_string()) // persist scope
-                    } else {
-                        None
+                platform_statuses.insert(
+                    target.label().to_string(),
+                    state::PlatformStatus {
+                        status: state::Status::Ok,
+                        r#ref: ref_str,
+                        error: None,
+                        scope: if *target == platform::Platform::ClaudeCode {
+                            Some(scope.to_string()) // persist scope
+                        } else {
+                            None
+                        },
                     },
-                });
+                );
             }
             Err(e) => {
                 eprintln!("  {} ✗ {e}", target.label());
-                platform_statuses.insert(target.label().to_string(), state::PlatformStatus {
-                    status: state::Status::Failed,
-                    r#ref: String::new(),
-                    error: Some(e.to_string()),
-                    scope: None,
-                });
+                platform_statuses.insert(
+                    target.label().to_string(),
+                    state::PlatformStatus {
+                        status: state::Status::Failed,
+                        r#ref: String::new(),
+                        error: Some(e.to_string()),
+                        scope: None,
+                    },
+                );
             }
         }
     }
 
-    let ok_count = platform_statuses.values()
-        .filter(|p| p.status == state::Status::Ok).count();
+    let ok_count = platform_statuses
+        .values()
+        .filter(|p| p.status == state::Status::Ok)
+        .count();
     let total = targets.len();
 
     // ac-005: bail if no platforms succeeded (ok_count == 0 → bail)
@@ -166,19 +194,28 @@ pub fn install_inner(name: &str, claude_code: bool, codex: bool, gemini: bool, s
     }
 
     let mut st = state::InstalledState::load(&dirs.installed_path())?;
-    st.set(name.to_string(), state::InstalledPlugin {
-        version: pkg.version.clone(),
-        sha256: computed_sha,
-        installed_at: chrono_now(),
-        source: skill_dir.to_string_lossy().to_string(),
-        platforms: platform_statuses,
-    });
+    st.set(
+        name.to_string(),
+        state::InstalledPlugin {
+            version: pkg.version.clone(),
+            sha256: computed_sha,
+            installed_at: chrono_now(),
+            source: skill_dir.to_string_lossy().to_string(),
+            platforms: platform_statuses,
+        },
+    );
     st.save(&dirs.installed_path())?;
 
     if ok_count == total {
-        println!("\nInstalled {name} v{} ({ok_count}/{total} platforms)", pkg.version);
+        println!(
+            "\nInstalled {name} v{} ({ok_count}/{total} platforms)",
+            pkg.version
+        );
     } else {
-        println!("\nPartially installed {name} v{} ({ok_count}/{total} platforms)", pkg.version);
+        println!(
+            "\nPartially installed {name} v{} ({ok_count}/{total} platforms)",
+            pkg.version
+        );
     }
     println!("Restart active CLI sessions to apply changes.");
 
@@ -190,12 +227,18 @@ fn clone_repo(repo_url: &str, tag: &str, dest: &Path) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("git clone failed: {e}"))?;
 
     let tag_ref = format!("refs/tags/{tag}");
-    let reference = repo.find_reference(&tag_ref)
+    let reference = repo
+        .find_reference(&tag_ref)
         .or_else(|_| repo.find_reference(&format!("refs/tags/v{tag}")))
-        .map_err(|_| anyhow::anyhow!("tag '{tag}' not found in repo. Available tags: {}",
-            list_tags(&repo)))?;
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "tag '{tag}' not found in repo. Available tags: {}",
+                list_tags(&repo)
+            )
+        })?;
 
-    let commit = reference.peel_to_commit()
+    let commit = reference
+        .peel_to_commit()
         .map_err(|e| anyhow::anyhow!("cannot resolve tag {tag}: {e}"))?;
     repo.checkout_tree(commit.as_object(), None)
         .map_err(|e| anyhow::anyhow!("checkout failed: {e}"))?;
@@ -214,7 +257,12 @@ fn list_tags(repo: &git2::Repository) -> String {
 // ac-003 + codex-finding-5: symlinks in packages are REJECTED (not skipped) to prevent integrity bypass
 // compute_sha256 and walkdir moved to core::hash
 
-fn install_claude_code(name: &str, category: &str, scope: &str, dirs: &Dirs) -> anyhow::Result<String> {
+fn install_claude_code(
+    name: &str,
+    category: &str,
+    scope: &str,
+    dirs: &Dirs,
+) -> anyhow::Result<String> {
     // ac-002: validate category (marketplace_dir returns Result now)
     validate_name(category)?;
     let marketplace_dir = dirs.marketplace_dir(category)?;
@@ -226,27 +274,35 @@ fn install_claude_code(name: &str, category: &str, scope: &str, dirs: &Dirs) -> 
 
     // Security: verify plugins_dir and manifest_dir are not symlinks and stay within managed tree
     {
-        let expected_base = dirs.claude_plugins.canonicalize()
+        let expected_base = dirs
+            .claude_plugins
+            .canonicalize()
             .map_err(|e| anyhow::anyhow!("cannot canonicalize claude_plugins dir: {e}"))?;
 
-        let plugins_dir_meta = plugins_dir.symlink_metadata()
+        let plugins_dir_meta = plugins_dir
+            .symlink_metadata()
             .map_err(|e| anyhow::anyhow!("cannot stat plugins dir: {e}"))?;
         if plugins_dir_meta.file_type().is_symlink() {
             anyhow::bail!("plugins directory is a symlink — aborting for security");
         }
-        let plugins_dir_canonical = plugins_dir.canonicalize()
+        let plugins_dir_canonical = plugins_dir
+            .canonicalize()
             .map_err(|e| anyhow::anyhow!("cannot canonicalize plugins dir: {e}"))?;
         if !plugins_dir_canonical.starts_with(&expected_base) {
             anyhow::bail!("plugins directory is outside managed tree — aborting for security");
         }
 
         // Fix 2: also verify manifest_dir (.claude-plugin) stays within managed tree
-        let manifest_dir_meta = manifest_dir.symlink_metadata()
+        let manifest_dir_meta = manifest_dir
+            .symlink_metadata()
             .map_err(|e| anyhow::anyhow!("cannot stat manifest dir: {e}"))?;
         if manifest_dir_meta.file_type().is_symlink() {
-            anyhow::bail!("manifest directory (.claude-plugin) is a symlink — aborting for security");
+            anyhow::bail!(
+                "manifest directory (.claude-plugin) is a symlink — aborting for security"
+            );
         }
-        let manifest_dir_canonical = manifest_dir.canonicalize()
+        let manifest_dir_canonical = manifest_dir
+            .canonicalize()
             .map_err(|e| anyhow::anyhow!("cannot canonicalize manifest dir: {e}"))?;
         if !manifest_dir_canonical.starts_with(&expected_base) {
             anyhow::bail!("manifest directory is outside managed tree — aborting for security");
@@ -261,18 +317,25 @@ fn install_claude_code(name: &str, category: &str, scope: &str, dirs: &Dirs) -> 
     }
 
     // codex-finding-6: verify adapter path stays within skill_dir (prevent symlink escape)
-    let skill_dir_canonical = dirs.skills_store.join(name).canonicalize()
+    let skill_dir_canonical = dirs
+        .skills_store
+        .join(name)
+        .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot canonicalize skill dir: {e}"))?;
     // target must not itself be a symlink
-    let target_meta = target.symlink_metadata()
+    let target_meta = target
+        .symlink_metadata()
         .map_err(|e| anyhow::anyhow!("cannot stat adapter path: {e}"))?;
     if target_meta.file_type().is_symlink() {
         anyhow::bail!("platforms/claude-code is a symlink — package rejected for security");
     }
-    let target_canonical = target.canonicalize()
+    let target_canonical = target
+        .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot canonicalize adapter path: {e}"))?;
     if !target_canonical.starts_with(&skill_dir_canonical) {
-        anyhow::bail!("platforms/claude-code escapes skill directory — package rejected for security");
+        anyhow::bail!(
+            "platforms/claude-code escapes skill directory — package rejected for security"
+        );
     }
 
     if link_path.exists() || link_path.is_symlink() {
@@ -299,7 +362,13 @@ fn install_claude_code(name: &str, category: &str, scope: &str, dirs: &Dirs) -> 
     }
 
     let install = std::process::Command::new("claude")
-        .args(["plugin", "install", &format!("{name}@{marketplace_name}"), "--scope", scope])
+        .args([
+            "plugin",
+            "install",
+            &format!("{name}@{marketplace_name}"),
+            "--scope",
+            scope,
+        ])
         .output()
         .map_err(|e| anyhow::anyhow!("claude plugin install failed: {e}"))?;
 
@@ -322,7 +391,10 @@ fn generate_marketplace_json(category: &str, plugins_dir: &Path) -> anyhow::Resu
             let description = if plugin_json_path.exists() {
                 let content = fs::read_to_string(&plugin_json_path)?;
                 let v: serde_json::Value = serde_json::from_str(&content)?;
-                v.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string()
+                v.get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string()
             } else {
                 String::new()
             };
@@ -347,31 +419,50 @@ fn generate_marketplace_json(category: &str, plugins_dir: &Path) -> anyhow::Resu
     Ok(serde_json::to_string_pretty(&marketplace)?)
 }
 
-// Shared symlink for both Codex and Gemini — prefer requested platform, fallback to other
-fn install_agentskills(name: &str, preferred: &platform::Platform, dirs: &Dirs) -> anyhow::Result<String> {
-    // Fix 3: verify dirs.agents_skills resolves within the expected home-based path
+fn install_agent_skill(
+    name: &str,
+    preferred: &platform::Platform,
+    dirs: &Dirs,
+) -> anyhow::Result<String> {
+    let managed_dir = match preferred {
+        platform::Platform::Codex => &dirs.codex_skills,
+        platform::Platform::Gemini => &dirs.agents_skills,
+        platform::Platform::ClaudeCode => {
+            anyhow::bail!("install_agent_skill called for claude-code")
+        }
+    };
+
+    // Verify managed skill dir resolves to the expected home-based path.
     {
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-        let expected_agents_skills = home.join(".agents").join("skills");
-        // agents_skills must already exist (created by ensure_dirs), so we can canonicalize
-        let agents_skills_canonical = dirs.agents_skills.canonicalize()
-            .map_err(|e| anyhow::anyhow!("cannot canonicalize agents_skills dir: {e}"))?;
-        // We accept if it IS the expected dir (or a subpath — though it should be exact)
-        let expected_canonical = expected_agents_skills.canonicalize()
-            .map_err(|e| anyhow::anyhow!("cannot canonicalize expected agents_skills path: {e}"))?;
-        if agents_skills_canonical != expected_canonical {
-            anyhow::bail!("agents_skills directory resolves outside expected path — aborting for security");
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
+        let expected_managed_dir = match preferred {
+            platform::Platform::Codex => home.join(".codex").join("skills"),
+            platform::Platform::Gemini => home.join(".agents").join("skills"),
+            platform::Platform::ClaudeCode => unreachable!(),
+        };
+        let managed_dir_canonical = managed_dir
+            .canonicalize()
+            .map_err(|e| anyhow::anyhow!("cannot canonicalize managed skill dir: {e}"))?;
+        let expected_canonical = expected_managed_dir
+            .canonicalize()
+            .map_err(|e| anyhow::anyhow!("cannot canonicalize expected managed skill path: {e}"))?;
+        if managed_dir_canonical != expected_canonical {
+            anyhow::bail!(
+                "managed skill directory resolves outside expected path — aborting for security"
+            );
         }
     }
 
-    let link_path = dirs.agents_skills.join(name);
+    let link_path = managed_dir.join(name);
     let skill_dir = dirs.skills_store.join(name);
 
     // codex-finding-7: canonicalize skill_dir to verify all sources stay within it
-    let skill_dir_canonical = skill_dir.canonicalize()
+    let skill_dir_canonical = skill_dir
+        .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot canonicalize skill dir: {e}"))?;
 
-    // Try preferred platform first, then other, then root SKILL.md
+    // Try preferred platform first, then the other agent adapter, then root SKILL.md.
     let (first, second) = match preferred {
         platform::Platform::Gemini => ("platforms/gemini", "platforms/codex"),
         _ => ("platforms/codex", "platforms/gemini"),
@@ -396,12 +487,14 @@ fn install_agentskills(name: &str, preferred: &platform::Platform, dirs: &Dirs) 
     };
 
     // codex-finding-7: verify source is not a symlink and stays within skill_dir
-    let source_meta = source.symlink_metadata()
+    let source_meta = source
+        .symlink_metadata()
         .map_err(|e| anyhow::anyhow!("cannot stat source path: {e}"))?;
     if source_meta.file_type().is_symlink() {
         anyhow::bail!("platform adapter source is a symlink — package rejected for security");
     }
-    let source_canonical = source.canonicalize()
+    let source_canonical = source
+        .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot canonicalize source path: {e}"))?;
     if !source_canonical.starts_with(&skill_dir_canonical) {
         anyhow::bail!("platform adapter escapes skill directory — package rejected for security");
@@ -415,7 +508,11 @@ fn install_agentskills(name: &str, preferred: &platform::Platform, dirs: &Dirs) 
     Ok(link_path.to_string_lossy().to_string())
 }
 
-fn register_marketplace(marketplace_name: &str, marketplace_dir: &Path, dirs: &Dirs) -> anyhow::Result<()> {
+fn register_marketplace(
+    marketplace_name: &str,
+    marketplace_dir: &Path,
+    dirs: &Dirs,
+) -> anyhow::Result<()> {
     let known_path = dirs.claude_plugins.join("known_marketplaces.json");
     let mut known: serde_json::Value = if known_path.exists() {
         let content = fs::read_to_string(&known_path)?;
@@ -476,7 +573,11 @@ fn check_blocklist(name: &str, dirs: &Dirs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn check_conflicts(name: &str, _pkg: &crate::core::registry::Package, dirs: &Dirs) -> anyhow::Result<()> {
+fn check_conflicts(
+    name: &str,
+    _pkg: &crate::core::registry::Package,
+    dirs: &Dirs,
+) -> anyhow::Result<()> {
     let installed_plugins_path = dirs.claude_plugins.join("installed_plugins.json");
     if !installed_plugins_path.exists() {
         return Ok(());
@@ -491,7 +592,9 @@ fn check_conflicts(name: &str, _pkg: &crate::core::registry::Package, dirs: &Dir
         for suffix in ["@emporium", "@local", "@claude-plugins-official"] {
             let key = format!("{name}{suffix}");
             if plugins.contains_key(&key) {
-                eprintln!("Warning: {key} already installed. Consider uninstalling it to avoid duplicates.");
+                eprintln!(
+                    "Warning: {key} already installed. Consider uninstalling it to avoid duplicates."
+                );
             }
         }
     }

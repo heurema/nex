@@ -1,4 +1,8 @@
-use crate::core::{dirs::{Dirs, validate_name}, lock::FileLock, state::{InstalledState, Status}};
+use crate::core::{
+    dirs::{Dirs, validate_name},
+    lock::FileLock,
+    state::{InstalledState, Status},
+};
 use std::fs;
 use std::process::Command;
 
@@ -10,14 +14,14 @@ pub fn run(name: &str) -> anyhow::Result<()> {
     let _lock = FileLock::acquire(&dirs.lock_path())?;
 
     let mut state = InstalledState::load(&dirs.installed_path())?;
-    let plugin = state.get(name)
+    let plugin = state
+        .get(name)
         .ok_or_else(|| anyhow::anyhow!("{name} is not installed"))?
         .clone();
 
     println!("Uninstalling {name} v{}...", plugin.version);
 
     let mut all_ok = true;
-    let mut agentskills_removed = false;
     // ac-006: track which platforms succeeded so we can keep only failed ones
     let mut succeeded_platforms: Vec<String> = Vec::new();
 
@@ -60,29 +64,29 @@ pub fn run(name: &str) -> anyhow::Result<()> {
                 }
             }
             "codex" | "gemini" => {
-                // Shared symlink — remove once, report for both
-                if agentskills_removed {
-                    println!("  {plat} ✓ (shared symlink already removed)");
-                    succeeded_platforms.push(plat.clone());
-                    continue;
-                }
-                let link = dirs.agents_skills.join(name);
+                let managed_dir = if plat == "codex" {
+                    &dirs.codex_skills
+                } else {
+                    &dirs.agents_skills
+                };
+                let link = managed_dir.join(name);
                 if link.exists() || link.is_symlink() {
-                    // Security: canonicalize agents_skills to verify removal stays within managed tree
-                    let agents_skills_canonical = dirs.agents_skills.canonicalize()
-                        .map_err(|e| anyhow::anyhow!("cannot canonicalize agents_skills dir: {e}"))?;
-                    // link is agents_skills/name — its parent must resolve to agents_skills
-                    let link_parent_canonical = link.parent()
-                        .and_then(|p| p.canonicalize().ok())
-                        .ok_or_else(|| anyhow::anyhow!("cannot canonicalize link parent"))?;
-                    if link_parent_canonical != agents_skills_canonical {
-                        anyhow::bail!("symlink parent resolves outside managed tree — aborting for security");
+                    let managed_dir_canonical = managed_dir.canonicalize().map_err(|e| {
+                        anyhow::anyhow!("cannot canonicalize managed skill dir: {e}")
+                    })?;
+                    let link_parent_canonical =
+                        link.parent()
+                            .and_then(|p| p.canonicalize().ok())
+                            .ok_or_else(|| anyhow::anyhow!("cannot canonicalize link parent"))?;
+                    if link_parent_canonical != managed_dir_canonical {
+                        anyhow::bail!(
+                            "symlink parent resolves outside managed tree — aborting for security"
+                        );
                     }
                     fs::remove_file(&link).or_else(|_| fs::remove_dir_all(&link))?;
-                    println!("  {plat} ✓ removed symlink");
-                    agentskills_removed = true;
+                    println!("  {plat} ✓ removed {}", link.display());
                 } else {
-                    println!("  {plat} ✓ (no symlink found)");
+                    println!("  {plat} ✓ (no entry found)");
                 }
                 succeeded_platforms.push(plat.clone());
             }
@@ -92,7 +96,9 @@ pub fn run(name: &str) -> anyhow::Result<()> {
 
     // ac-006: keep state for failed platforms; remove only succeeded ones
     if !all_ok {
-        eprintln!("Warning: some platform uninstalls failed. Removing only succeeded platforms from state.");
+        eprintln!(
+            "Warning: some platform uninstalls failed. Removing only succeeded platforms from state."
+        );
         eprintln!("Source kept at ~/.skills/{name}/");
         eprintln!("Run `nex install {name}` to re-sync or manually clean up.");
 

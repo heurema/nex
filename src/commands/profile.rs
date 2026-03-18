@@ -57,67 +57,31 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
 
     println!("Applying profile: {name}\n");
 
-    // Codex/Gemini: create/remove symlinks in ~/.agents/skills/
-    if profile.platforms.codex || profile.platforms.gemini {
-        let agent_dir = &dirs.agents_skills;
-        std::fs::create_dir_all(agent_dir)?;
-
-        let current_skills = cc_adapter::scan_agent_skills(agent_dir);
-
-        for plugin_name in &profile.plugins.enable {
-            if current_skills.contains_key(plugin_name) {
-                println!("  [OK] {plugin_name} \u{2014} Codex/Gemini symlink exists");
-                continue;
-            }
-            // Find source: dev override or skills store
-            let source = if let Some(dev_path) = profile.dev.get(plugin_name) {
-                let expanded = shellexpand::tilde(dev_path).to_string();
-                std::path::PathBuf::from(expanded)
-            } else {
-                dirs.skills_store.join(plugin_name)
-            };
-
-            // Look for platforms/codex/ subdir
-            let codex_dir = source.join("platforms").join("codex");
-            let link_target = if codex_dir.exists() {
-                codex_dir
-            } else {
-                source.clone()
-            };
-            let link_path = agent_dir.join(plugin_name);
-
-            if link_target.exists() {
-                std::os::unix::fs::symlink(&link_target, &link_path)?;
-                println!(
-                    "  [NEW] {plugin_name} \u{2014} symlink: {} -> {}",
-                    link_path.display(),
-                    link_target.display()
-                );
-            } else {
-                println!(
-                    "  [SKIP] {plugin_name} \u{2014} source not found: {}",
-                    source.display()
-                );
-            }
-        }
-
-        // Remove symlinks not in profile
-        for (existing, _) in &current_skills {
-            if !profile.plugins.enable.contains(existing) {
-                let link = agent_dir.join(existing);
-                if link.is_symlink() {
-                    std::fs::remove_file(&link)?;
-                    println!("  [DEL] {existing} \u{2014} removed (not in profile)");
-                }
-            }
-        }
+    if profile.platforms.codex {
+        sync_agent_profile_links(
+            &dirs.codex_skills,
+            "Codex",
+            "platforms/codex",
+            "platforms/gemini",
+            &profile,
+            &dirs,
+        )?;
+    }
+    if profile.platforms.gemini {
+        sync_agent_profile_links(
+            &dirs.agents_skills,
+            "Gemini",
+            "platforms/gemini",
+            "platforms/codex",
+            &profile,
+            &dirs,
+        )?;
     }
 
     // CC: show drift report (read-only)
     if profile.platforms.claude_code {
         println!("\nCC drift report (read-only):");
-        let catalog =
-            cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path())?;
+        let catalog = cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path())?;
         let cc_cache = cc_adapter::scan_cc_cache(&dirs.cc_cache_dir());
 
         for plugin_name in &profile.plugins.enable {
@@ -139,6 +103,74 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
     // Set as active
     profiles::set_active_profile(&dirs.active_profile_path(), name)?;
     println!("\nProfile '{name}' applied and set as active.");
+
+    Ok(())
+}
+
+fn sync_agent_profile_links(
+    link_dir: &std::path::Path,
+    platform_name: &str,
+    preferred_adapter: &str,
+    fallback_adapter: &str,
+    profile: &profiles::Profile,
+    dirs: &Dirs,
+) -> anyhow::Result<()> {
+    std::fs::create_dir_all(link_dir)?;
+
+    let current_skills = if platform_name == "Codex" {
+        cc_adapter::scan_codex_skills(link_dir)
+    } else {
+        cc_adapter::scan_gemini_skills(link_dir)
+    };
+
+    for plugin_name in &profile.plugins.enable {
+        if current_skills.contains_key(plugin_name) {
+            println!("  [OK] {plugin_name} \u{2014} {platform_name} entry exists");
+            continue;
+        }
+
+        let source = if let Some(dev_path) = profile.dev.get(plugin_name) {
+            let expanded = shellexpand::tilde(dev_path).to_string();
+            std::path::PathBuf::from(expanded)
+        } else {
+            dirs.skills_store.join(plugin_name)
+        };
+
+        let preferred_dir = source.join(preferred_adapter);
+        let fallback_dir = source.join(fallback_adapter);
+        let root_skill = source.join("SKILL.md");
+        let link_target = if preferred_dir.exists() {
+            preferred_dir
+        } else if fallback_dir.exists() {
+            fallback_dir
+        } else if root_skill.is_file() {
+            source.clone()
+        } else {
+            println!(
+                "  [SKIP] {plugin_name} \u{2014} no {platform_name} adapter in {}",
+                source.display()
+            );
+            continue;
+        };
+        let link_path = link_dir.join(plugin_name);
+
+        std::os::unix::fs::symlink(&link_target, &link_path)?;
+        println!(
+            "  [NEW] {plugin_name} \u{2014} {platform_name}: {} -> {}",
+            link_path.display(),
+            link_target.display()
+        );
+    }
+
+    for (existing, _) in &current_skills {
+        if !profile.plugins.enable.contains(existing) {
+            let link = link_dir.join(existing);
+            if link.is_symlink() {
+                std::fs::remove_file(&link)?;
+                println!("  [DEL] {existing} \u{2014} removed from {platform_name} profile");
+            }
+        }
+    }
 
     Ok(())
 }

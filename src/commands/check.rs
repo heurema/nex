@@ -2,22 +2,13 @@ use crate::core::{cc_adapter, dirs::Dirs};
 
 pub fn run(_refresh: bool) -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
-
-    let catalog = cc_adapter::load_emporium_catalog(&dirs.emporium_marketplace_path())?;
-    let cc_cache = cc_adapter::scan_cc_cache(&dirs.cc_cache_dir());
-    let cc_installed = cc_adapter::load_cc_installed(&dirs.cc_installed_plugins_path());
-    let dev_symlinks = cc_adapter::scan_dev_symlinks(&dirs.claude_plugins);
-    let agent_skills = cc_adapter::scan_agent_skills(&dirs.agents_skills);
-
-    let views = cc_adapter::build_plugin_views(
-        &catalog, &cc_cache, &cc_installed, &dev_symlinks, &agent_skills,
-    );
+    let views = cc_adapter::load_plugin_views(&dirs)?;
 
     println!(
-        "{:<16} {:<12} {:<12} {:<10} {}",
-        "PLUGIN", "EMPORIUM", "CC CACHE", "CODEX", "STATUS"
+        "{:<16} {:<12} {:<12} {:<10} {:<10} {}",
+        "PLUGIN", "EMPORIUM", "CC CACHE", "CODEX", "GEMINI", "STATUS"
     );
-    println!("{}", "\u{2500}".repeat(62));
+    println!("{}", "\u{2500}".repeat(74));
 
     let mut update_count = 0;
     let mut drift_count = 0;
@@ -34,6 +25,11 @@ pub fn run(_refresh: bool) -> anyhow::Result<()> {
             .map(|v| format!("v{v}"))
             .unwrap_or_else(|| "\u{2014}".to_string());
         let codex = if v.codex_linked { "linked" } else { "\u{2014}" };
+        let gemini = if v.gemini_linked {
+            "linked"
+        } else {
+            "\u{2014}"
+        };
 
         let status = if v.drift.is_empty() {
             "\x1b[32mOK\x1b[0m".to_string()
@@ -47,7 +43,10 @@ pub fn run(_refresh: bool) -> anyhow::Result<()> {
             "\x1b[33mDRIFT\x1b[0m".to_string()
         };
 
-        println!("{:<16} {:<12} {:<12} {:<10} {}", v.name, emp, cache, codex, status);
+        println!(
+            "{:<16} {:<12} {:<12} {:<10} {:<10} {}",
+            v.name, emp, cache, codex, gemini, status
+        );
     }
 
     if update_count > 0 {
