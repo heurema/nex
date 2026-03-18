@@ -2,6 +2,7 @@ use crate::core::{
     changelog,
     config::{self, expand_placeholders, ResolvedConfig},
     docs_sync,
+    git,
     marketplace::{self, MarketplaceRef},
 };
 use chrono::Datelike;
@@ -169,7 +170,7 @@ pub fn run(
 
     // Resolve branch
     let branch = if resolved.git_branch.is_empty() {
-        detect_branch_from_repo(&repo, &resolved.git_remote)
+        git::resolve_push_branch(&repo, &resolved.git_remote)
     } else {
         resolved.git_branch.clone()
     };
@@ -606,29 +607,6 @@ fn preflight_remote_accessible(
         .map_err(|e| anyhow::anyhow!("remote '{}' not found: {e}", remote_name))?;
     // We don't do a full ls-remote (requires network); the push step will catch unreachable remotes.
     Ok(())
-}
-
-fn detect_branch_from_repo(repo: &git2::Repository, remote: &str) -> String {
-    // Try refs/remotes/{remote}/HEAD symbolic target
-    let ref_name = format!("refs/remotes/{remote}/HEAD");
-    if let Ok(reference) = repo.find_reference(&ref_name) {
-        if let Some(target) = reference.symbolic_target() {
-            if let Some(branch) = target.rsplit('/').next() {
-                if !branch.is_empty() {
-                    return branch.to_string();
-                }
-            }
-        }
-    }
-    // Fallback: current HEAD shorthand
-    if let Ok(head) = repo.head() {
-        if let Some(name) = head.shorthand() {
-            if !name.is_empty() && name != "HEAD" {
-                return name.to_string();
-            }
-        }
-    }
-    "main".to_string()
 }
 
 // ── BUMP helpers ──────────────────────────────────────────────────────────────
