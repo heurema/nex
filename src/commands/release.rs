@@ -352,16 +352,22 @@ pub fn run(
         println!("  --   PROPAGATE   skipped");
     }
 
-    // PUBLISH — update local registry
-    match crate::commands::publish::compute_entry(&plugin_name, &plugin_root, Some(&tag)) {
-        Ok(pub_entry) => {
-            let reg_path = nex_home.join("registry.json");
-            match crate::commands::publish::write_to_registry(&pub_entry, &reg_path) {
-                Ok(()) => println!("  [OK] PUBLISH     registry updated"),
-                Err(e) => eprintln!("  --   PUBLISH     failed: {e}"),
+    // PUBLISH — update local registry (plugins only)
+    let has_plugin_json = plugin_root.join(".claude-plugin/plugin.json").exists();
+    let has_skill_md = plugin_root.join("SKILL.md").exists();
+    if has_plugin_json || has_skill_md {
+        match crate::commands::publish::compute_entry(&plugin_name, &plugin_root, Some(&tag)) {
+            Ok(pub_entry) => {
+                let reg_path = nex_home.join("registry.json");
+                match crate::commands::publish::write_to_registry(&pub_entry, &reg_path) {
+                    Ok(()) => println!("  [OK] PUBLISH     registry updated"),
+                    Err(e) => eprintln!("  --   PUBLISH     failed: {e}"),
+                }
             }
+            Err(e) => eprintln!("  --   PUBLISH     failed: {e}"),
         }
-        Err(e) => eprintln!("  --   PUBLISH     failed: {e}"),
+    } else {
+        println!("  --   PUBLISH     skipped (not a plugin)");
     }
 
     // HOOKS (post_release) — non-zero is a warning only
