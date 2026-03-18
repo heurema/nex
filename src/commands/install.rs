@@ -3,6 +3,7 @@ use crate::core::{
     hash::compute_sha256,
     lock::FileLock,
     platform,
+    reconcile,
     registry::Registry,
     state,
 };
@@ -46,21 +47,18 @@ pub fn install_inner(
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("Package '{name}' not found in registry"))?;
 
-    let detected = platform::detect_platforms();
-    let targets = platform::filter_platforms(&detected, claude_code, codex, gemini);
-    if targets.is_empty() {
-        anyhow::bail!("No target CLIs detected. Install claude, codex, or gemini first.");
-    }
-
-    // ac-008: filter targets by pkg.platforms from registry
-    let targets: Vec<platform::Platform> = targets
-        .into_iter()
-        .filter(|t| pkg.platforms.iter().any(|p| p == t.label()))
-        .collect();
+    // Reconcile: compute target platforms using precedence rules
+    let targets = reconcile::resolve_targets(
+        &pkg.platforms,
+        claude_code,
+        codex,
+        gemini,
+        None, // profile wiring deferred to Stage 3
+    );
     if targets.is_empty() {
         anyhow::bail!(
-            "Package '{name}' does not support any of the detected platforms. \
-             Supported: [{}]",
+            "No installable platforms for '{name}'. \
+             Detected CLIs must overlap with supported platforms: [{}]",
             pkg.platforms.join(", ")
         );
     }
@@ -208,15 +206,22 @@ pub fn install_inner(
     );
     st.save(&dirs.installed_path())?;
 
-    if ok_count == total {
+    // Drift detection: check if all target platforms are realized
+    let drift = reconcile::detect_drift(&targets, &st.get(name).unwrap().platforms);
+    if drift.is_empty() {
         println!(
             "\nInstalled {name} v{} ({ok_count}/{total} platforms)",
             pkg.version
         );
     } else {
+        eprintln!(
+            "warning: {name}: platform drift detected — missing: [{}]",
+            drift.join(", ")
+        );
         println!(
-            "\nPartially installed {name} v{} ({ok_count}/{total} platforms)",
-            pkg.version
+            "\nPartially installed {name} v{} ({ok_count}/{total} platforms, {} in drift)",
+            pkg.version,
+            drift.len()
         );
     }
     println!("Restart active CLI sessions to apply changes.");

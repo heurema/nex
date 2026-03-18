@@ -1,4 +1,4 @@
-use crate::core::{cc_adapter, dirs::Dirs, profiles};
+use crate::core::{cc_adapter, dirs::Dirs, profiles, reconcile};
 
 pub fn run_list() -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
@@ -57,7 +57,14 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
 
     println!("Applying profile: {name}\n");
 
-    if profile.platforms.codex {
+    // Reconcile: compute enabled platforms from profile (no CLI flags override during apply)
+    let all_platforms = vec!["claude-code".to_string(), "codex".to_string(), "gemini".to_string()];
+    let active_targets = reconcile::resolve_targets(&all_platforms, false, false, false, Some(&profile));
+
+    let has_codex = active_targets.iter().any(|t| t.label() == "codex");
+    let has_gemini = active_targets.iter().any(|t| t.label() == "gemini");
+
+    if has_codex {
         sync_agent_profile_links(
             &dirs.codex_skills,
             "Codex",
@@ -67,7 +74,7 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
             &dirs,
         )?;
     }
-    if profile.platforms.gemini {
+    if has_gemini {
         sync_agent_profile_links(
             &dirs.agents_skills,
             "Gemini",
