@@ -142,8 +142,14 @@ fn sync_agent_profile_links(
         let link_target = if preferred_dir.exists() {
             preferred_dir
         } else if fallback_dir.exists() {
+            eprintln!(
+                "warning: {plugin_name}: using fallback adapter for {platform_name}. Dedicated platform adapter recommended."
+            );
             fallback_dir
         } else if root_skill.is_file() {
+            eprintln!(
+                "warning: {plugin_name}: using root SKILL.md fallback for {platform_name}. Dedicated platform adapter recommended."
+            );
             source.clone()
         } else {
             println!(

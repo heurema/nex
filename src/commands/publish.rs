@@ -37,6 +37,8 @@ pub struct PublishEntry {
     pub description: String,
     pub platforms: Vec<String>,
     pub category: String,
+    #[allow(dead_code)] // wired to registry in Stage 1
+    pub release_class: String,
 }
 
 /// Compute publish entry from a plugin directory.
@@ -56,6 +58,20 @@ pub fn compute_entry(name: &str, plugin_dir: &Path, tag: Option<&str>) -> anyhow
         PluginFormat::ClaudeCodeOnly => vec!["claude-code".to_string()],
     };
 
+    let release_class = match format {
+        PluginFormat::ClaudeCodeOnly => "legacy".to_string(),
+        PluginFormat::Universal => {
+            let all_three = ["claude-code", "codex", "gemini"]
+                .iter()
+                .all(|p| platforms.iter().any(|pl| pl == p));
+            if all_three {
+                "universal".to_string()
+            } else {
+                "partial".to_string()
+            }
+        }
+    };
+
     Ok(PublishEntry {
         name: name.to_string(),
         repo: repo_url,
@@ -64,6 +80,7 @@ pub fn compute_entry(name: &str, plugin_dir: &Path, tag: Option<&str>) -> anyhow
         description,
         platforms,
         category,
+        release_class,
     })
 }
 

@@ -471,12 +471,21 @@ fn install_agent_skill(
     let source = if skill_dir.join(first).exists() {
         skill_dir.join(first)
     } else if skill_dir.join(second).exists() {
+        eprintln!(
+            "warning: {name}: using fallback adapter for {}. Create a dedicated platform adapter.",
+            preferred.label()
+        );
         skill_dir.join(second)
     } else {
         let root_skill = skill_dir.join("SKILL.md");
         if !root_skill.exists() {
             anyhow::bail!("No platform adapter or root SKILL.md found");
         }
+        eprintln!(
+            "warning: {name}: using root SKILL.md fallback for {}. Create platforms/{} adapter.",
+            preferred.label(),
+            preferred.label()
+        );
         // Fix 4: agents expect a directory target; create a wrapper directory
         // platforms/_fallback/ containing SKILL.md and use that as symlink target.
         let fallback_dir = skill_dir.join("platforms/_fallback");

@@ -26,6 +26,7 @@ pub fn run(name: &str) -> anyhow::Result<()> {
         "description": format!("A nex plugin: {name}"),
         "category": "general",
         "platforms": ["claude-code"],
+        "format_version": 1,
     });
     let plugin_json_str = serde_json::to_string_pretty(&plugin_json)?;
     fs::write(target.join(".claude-plugin/plugin.json"), &plugin_json_str)?;
