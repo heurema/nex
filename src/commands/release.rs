@@ -143,7 +143,7 @@ pub fn run(
                     .unwrap_or(&plugin_name);
                 let mp = MarketplaceRef::new(mp_name.clone(), mp_cfg.clone(), resolved.git_remote.clone());
                 if !dry_run {
-                    mp.validate(entry)?;
+                    // Skip validate — propagate handles both update and auto-add for new plugins
                     // Marketplace must be clean — warn and skip PROPAGATE if dirty
                     if !marketplace::is_clean(&mp)? {
                         eprintln!(

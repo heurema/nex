@@ -65,7 +65,7 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
     check_nex_devtools(&dirs, &mut issues);
     check_emporium_drift(&catalog, &cc_cache, &mut issues);
     check_duplicate_plugins(&catalog, &dev_symlinks, &dirs, &mut issues);
-    check_stale_dev_symlinks(&dev_symlinks, &mut issues);
+    check_stale_dev_symlinks(&dev_symlinks, &dirs, &mut issues);
     check_orphan_cache(&catalog, &dirs, &mut issues);
 
     // Release drift checks (dev-linked plugins)
@@ -374,7 +374,11 @@ fn fix_tag_and_propagate(
                 mp_cfg.clone(),
                 resolved.git_remote.clone(),
             );
-            if let Err(e) = marketplace::propagate(&mp, &plugin_name, entry, &version, &tag, false, Some(plugin_dir)) {
+            // Check marketplace is clean before propagating (avoid committing stale staged changes)
+            if let Ok(false) = marketplace::is_clean(&mp) {
+                eprintln!("    \x1b[33m[WARN]\x1b[0m marketplace has uncommitted changes; PROPAGATE skipped");
+                propagate_failed = true;
+            } else if let Err(e) = marketplace::propagate(&mp, &plugin_name, entry, &version, &tag, false, Some(plugin_dir)) {
                 eprintln!("    \x1b[33m[WARN]\x1b[0m PROPAGATE failed: {e}");
                 propagate_failed = true;
             }
@@ -875,14 +879,10 @@ fn check_duplicate_plugins(
     }
 }
 
-fn check_stale_dev_symlinks(dev_symlinks: &HashMap<String, PathBuf>, issues: &mut Vec<Issue>) {
+fn check_stale_dev_symlinks(dev_symlinks: &HashMap<String, PathBuf>, dirs: &Dirs, issues: &mut Vec<Issue>) {
     for (name, target) in dev_symlinks {
         if !target.exists() {
-            let link_path = dirs::home_dir()
-                .unwrap_or_default()
-                .join(".claude")
-                .join("plugins")
-                .join(name);
+            let link_path = dirs.claude_plugins.join(name);
             issues.push(Issue {
                 plugin: name.clone(),
                 check: "stale_symlink",

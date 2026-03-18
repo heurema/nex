@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "nex"
-version = "0.9.0"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "chrono",

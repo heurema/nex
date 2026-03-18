@@ -106,15 +106,29 @@ pub struct NewPluginMeta {
 }
 
 /// Read NewPluginMeta from a plugin directory's plugin.json + git remote.
+/// Uses the configured git remote (from .nex/release.toml) or falls back to "origin".
+/// Strips credentials from URLs to prevent leaking tokens into marketplace manifests.
 pub fn read_plugin_meta(plugin_dir: &std::path::Path) -> Option<NewPluginMeta> {
     let pj = plugin_dir.join(".claude-plugin/plugin.json");
     let content = std::fs::read_to_string(&pj).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
     let description = v.get("description")?.as_str()?.to_string();
     let category = v.get("category").and_then(|c| c.as_str()).unwrap_or("general").to_string();
+
+    // Determine remote name from release config, fallback to "origin"
+    let remote_name = std::fs::read_to_string(plugin_dir.join(".nex/release.toml"))
+        .ok()
+        .and_then(|toml_str| toml_str.parse::<toml::Value>().ok())
+        .and_then(|t| t.get("git").and_then(|g| g.get("remote")).and_then(|r| r.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "origin".to_string());
+
     let repo = git2::Repository::discover(plugin_dir).ok()?;
-    let remote = repo.find_remote("origin").ok()?;
-    let url = remote.url()?.to_string();
+    let remote = repo.find_remote(&remote_name).ok()?;
+    let raw_url = remote.url()?.to_string();
+
+    // Strip credentials to prevent token leakage into marketplace manifest
+    let url = crate::commands::publish::strip_credentials(&raw_url);
+
     // Ensure .git suffix for HTTPS URLs
     let repo_url = if url.starts_with("https://") && !url.ends_with(".git") {
         format!("{url}.git")

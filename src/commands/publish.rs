@@ -68,8 +68,15 @@ pub fn compute_entry(name: &str, plugin_dir: &Path, tag: Option<&str>) -> anyhow
 }
 
 /// Write a publish entry to the local registry (upsert).
+/// Loads existing registry to preserve all packages — never overwrites with partial data.
 pub fn write_to_registry(entry: &PublishEntry, registry_path: &Path) -> anyhow::Result<()> {
-    let mut reg = Registry::load_local(registry_path)?;
+    // Load existing registry (local file or fetched cache) to preserve all packages
+    let mut reg = if registry_path.exists() {
+        Registry::load_local(registry_path)?
+    } else {
+        // Try network fetch to bootstrap with full package list
+        Registry::load(registry_path, false).unwrap_or_else(|_| Registry::load_local(registry_path).unwrap_or_else(|_| Registry { version: 2, packages: std::collections::HashMap::new() }))
+    };
     reg.upsert(
         entry.name.clone(),
         Package {
@@ -134,7 +141,7 @@ fn extract_origin_url(repo: &git2::Repository) -> anyhow::Result<String> {
     Ok(url)
 }
 
-fn strip_credentials(url: &str) -> String {
+pub fn strip_credentials(url: &str) -> String {
     // Strip userinfo from any scheme://user@host URL
     for scheme in &["https://", "http://", "ssh://"] {
         if let Some(rest) = url.strip_prefix(scheme) {
