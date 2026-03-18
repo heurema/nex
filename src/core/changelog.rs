@@ -77,7 +77,7 @@ pub fn insert_auto_section(
 }
 
 /// Find the most recent tag in the repo (used as range start for git log).
-fn find_previous_tag(plugin_root: &Path) -> Option<String> {
+pub fn find_previous_tag(plugin_root: &Path) -> Option<String> {
     let output = Command::new("git")
         .args(["describe", "--tags", "--abbrev=0", "HEAD"])
         .current_dir(plugin_root)
@@ -91,7 +91,7 @@ fn find_previous_tag(plugin_root: &Path) -> Option<String> {
 }
 
 /// Collect commit messages from `prev_tag..HEAD` (or all commits if no tag).
-fn collect_commits(plugin_root: &Path, prev_tag: Option<&str>) -> Vec<String> {
+pub fn collect_commits(plugin_root: &Path, prev_tag: Option<&str>) -> Vec<String> {
     let range = match prev_tag {
         Some(tag) => format!("{tag}..HEAD"),
         None => "HEAD".to_string(),

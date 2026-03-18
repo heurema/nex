@@ -109,12 +109,15 @@ enum Commands {
     },
     /// Automated plugin release pipeline (dry-run by default)
     Release {
-        /// Bump level: major, minor, or patch (default: patch)
+        /// Bump level: major, minor, patch, or auto (default: patch)
         #[arg(default_value = "patch")]
         level: String,
         /// Actually perform the release (default: dry-run)
         #[arg(long)]
         execute: bool,
+        /// Auto-detect bump level from conventional commits
+        #[arg(long)]
+        auto: bool,
         /// Explicit version (overrides LEVEL)
         #[arg(long, value_name = "VER")]
         version: Option<String>,
@@ -136,6 +139,17 @@ enum Commands {
         /// Show detailed output
         #[arg(short, long)]
         verbose: bool,
+    },
+    /// Ship: auto-detect bump level and release (alias for `release --auto`)
+    Ship {
+        /// Bump level override (default: auto-detect from commits)
+        level: Option<String>,
+        /// Actually perform the release (default: dry-run)
+        #[arg(long)]
+        execute: bool,
+        /// Plugin directory (default: current directory)
+        #[arg(long, value_name = "DIR")]
+        path: Option<String>,
     },
 }
 
@@ -242,9 +256,10 @@ fn main() {
         Commands::Info { name } => {
             commands::info::run(&name)
         }
-        Commands::Release { level, execute, version, marketplace, tag_format, no_propagate, no_changelog, path, verbose } => {
+        Commands::Release { level, execute, auto, version, marketplace, tag_format, no_propagate, no_changelog, path, verbose } => {
+            let effective_level = if auto { "auto".to_string() } else { level };
             commands::release::run(
-                &level,
+                &effective_level,
                 execute,
                 version.as_deref(),
                 marketplace.as_deref(),
@@ -253,6 +268,20 @@ fn main() {
                 no_changelog,
                 path.as_deref(),
                 verbose,
+            )
+        }
+        Commands::Ship { level, execute, path } => {
+            let effective_level = level.unwrap_or_else(|| "auto".to_string());
+            commands::release::run(
+                &effective_level,
+                execute,
+                None,
+                None,
+                None,
+                false,
+                false,
+                path.as_deref(),
+                false,
             )
         }
     };

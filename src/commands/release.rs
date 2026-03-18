@@ -30,6 +30,43 @@ impl BumpLevel {
         }
     }
 
+    /// Detect bump level from conventional commit messages since last tag.
+    /// Returns (level, reason) for display in dry-run.
+    pub fn detect(plugin_root: &Path) -> (Self, String) {
+        let prev_tag = changelog::find_previous_tag(plugin_root);
+        let commits = changelog::collect_commits(plugin_root, prev_tag.as_deref());
+
+        if commits.is_empty() {
+            return (Self::Patch, "no commits since last tag".to_string());
+        }
+
+        let mut has_breaking = false;
+        let mut has_feat = false;
+        let mut reasons: Vec<String> = Vec::new();
+
+        for msg in &commits {
+            let lower = msg.to_lowercase();
+            if lower.starts_with("breaking:") || lower.contains("breaking change") || msg.starts_with("!:") {
+                has_breaking = true;
+                reasons.push(format!("BREAKING: {}", &msg[..msg.len().min(60)]));
+            } else if lower.starts_with("feat:") || lower.starts_with("feat(") {
+                has_feat = true;
+                if reasons.len() < 3 {
+                    reasons.push(msg[..msg.len().min(60)].to_string());
+                }
+            }
+        }
+
+        if has_breaking {
+            (Self::Major, format!("detected BREAKING ({})", reasons.join("; ")))
+        } else if has_feat {
+            (Self::Minor, format!("detected feat commits ({})", reasons.join("; ")))
+        } else {
+            let sample = commits.first().map(|s| s[..s.len().min(50)].to_string()).unwrap_or_default();
+            (Self::Patch, format!("{} commit(s), no feat/breaking (e.g. {})", commits.len(), sample))
+        }
+    }
+
     fn apply(&self, v: &Version) -> Version {
         match self {
             Self::Major => Version::new(v.major + 1, 0, 0),
@@ -97,6 +134,10 @@ pub fn run(
     let next_version: Version = if let Some(v) = explicit_version {
         v.parse::<Version>()
             .map_err(|e| anyhow::anyhow!("invalid explicit version '{}': {e}", v))?
+    } else if level == "auto" {
+        let (detected, reason) = BumpLevel::detect(&plugin_root);
+        println!("  Auto-detect: {detected:?} ({reason})");
+        detected.apply(&current_version)
     } else {
         let level = BumpLevel::parse(level)?;
         level.apply(&current_version)
