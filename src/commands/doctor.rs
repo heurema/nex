@@ -293,7 +293,7 @@ fn fix_tag_and_propagate(
         .ok_or_else(|| anyhow::anyhow!("cannot read plugin.json in {}", plugin_dir.display()))?;
 
     let plugin_cfg = config::load_plugin(plugin_dir)?;
-    let resolved = config::resolve(global_cfg, &plugin_cfg, None, None, false, false)?;
+    let resolved = config::resolve(global_cfg, &plugin_cfg, None, None, false, false, Some(plugin_dir))?;
 
     let tag = expand_placeholders(&resolved.tag_format, &plugin_name, &version, "", "");
 
@@ -445,7 +445,7 @@ fn check_release_drift(
         // Load configs (defaults if no release.toml)
         let plugin_cfg = config::load_plugin(&plugin_root).unwrap_or_default();
         let Ok(resolved_cfg) =
-            config::resolve(global_cfg, &plugin_cfg, None, None, false, false)
+            config::resolve(global_cfg, &plugin_cfg, None, None, false, false, Some(&plugin_root))
         else {
             continue;
         };

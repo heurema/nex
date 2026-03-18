@@ -108,6 +108,9 @@ pub struct HooksConfig {
 pub struct PluginReleaseConfig {
     #[serde(default)]
     pub schema_version: u32,
+    /// Project name override (for non-plugin projects without plugin.json).
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub marketplace: String,
     #[serde(default)]
@@ -207,6 +210,8 @@ pub fn resolve(
     cli_marketplace: Option<&str>,
     cli_no_propagate: bool,
     cli_no_changelog: bool,
+    // Plugin root for smart defaults (version_files auto-detection)
+    plugin_root: Option<&Path>,
 ) -> anyhow::Result<ResolvedConfig> {
     // git.remote: plugin > global > "origin"
     let git_remote = plugin
@@ -265,14 +270,37 @@ pub fn resolve(
         .map(|c| c.filename.clone())
         .unwrap_or_else(|| global.changelog.filename.clone());
 
-    // version_files: plugin > default
+    // version_files: plugin > auto-detect
     let version_files = if plugin.version_files.is_empty() {
-        vec![VersionFile {
-            path: ".claude-plugin/plugin.json".to_string(),
-            format: "json".to_string(),
-            pattern: None,
-            replace: None,
-        }]
+        let has_plugin_json = plugin_root
+            .map(|r| r.join(".claude-plugin/plugin.json").exists())
+            .unwrap_or(true); // assume plugin.json if no root provided
+        let has_cargo_toml = plugin_root
+            .map(|r| r.join("Cargo.toml").exists())
+            .unwrap_or(false);
+
+        if has_plugin_json {
+            vec![VersionFile {
+                path: ".claude-plugin/plugin.json".to_string(),
+                format: "json".to_string(),
+                pattern: None,
+                replace: None,
+            }]
+        } else if has_cargo_toml {
+            vec![VersionFile {
+                path: "Cargo.toml".to_string(),
+                format: "toml".to_string(),
+                pattern: None,
+                replace: None,
+            }]
+        } else {
+            vec![VersionFile {
+                path: ".claude-plugin/plugin.json".to_string(),
+                format: "json".to_string(),
+                pattern: None,
+                replace: None,
+            }]
+        }
     } else {
         plugin.version_files.clone()
     };

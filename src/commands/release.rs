@@ -76,6 +76,7 @@ pub fn run(
         cli_marketplace,
         no_propagate,
         no_changelog,
+        Some(&plugin_root),
     )?;
 
     // ── PREFLIGHT ─────────────────────────────────────────────────────────
@@ -714,21 +715,53 @@ fn bump_regex(
 
 // ── GIT helpers ───────────────────────────────────────────────────────────────
 
+/// Read project name. Priority: .nex/release.toml name > plugin.json > Cargo.toml
 fn read_plugin_name(plugin_root: &Path) -> anyhow::Result<String> {
-    let plugin_json = plugin_root.join(".claude-plugin/plugin.json");
-    if !plugin_json.exists() {
-        anyhow::bail!(
-            "not a plugin directory: .claude-plugin/plugin.json not found in {}",
-            plugin_root.display()
-        );
+    // 1. .nex/release.toml "name" field
+    let release_toml = plugin_root.join(".nex/release.toml");
+    if release_toml.exists() {
+        if let Ok(content) = std::fs::read_to_string(&release_toml) {
+            if let Ok(cfg) = toml::from_str::<config::PluginReleaseConfig>(&content) {
+                if let Some(name) = cfg.name {
+                    if !name.is_empty() {
+                        return Ok(name);
+                    }
+                }
+            }
+        }
     }
-    let content = std::fs::read_to_string(&plugin_json)?;
-    let v: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("failed to parse plugin.json: {e}"))?;
-    v.get("name")
-        .and_then(|n| n.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("plugin.json has no 'name' field"))
+
+    // 2. .claude-plugin/plugin.json "name" field
+    let plugin_json = plugin_root.join(".claude-plugin/plugin.json");
+    if plugin_json.exists() {
+        let content = std::fs::read_to_string(&plugin_json)?;
+        let v: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("failed to parse plugin.json: {e}"))?;
+        if let Some(name) = v.get("name").and_then(|n| n.as_str()) {
+            if !name.is_empty() {
+                return Ok(name.to_string());
+            }
+        }
+    }
+
+    // 3. Cargo.toml [package].name
+    let cargo_toml = plugin_root.join("Cargo.toml");
+    if cargo_toml.exists() {
+        let content = std::fs::read_to_string(&cargo_toml)?;
+        let table: toml::Value = content.parse::<toml::Value>()
+            .map_err(|e| anyhow::anyhow!("failed to parse Cargo.toml: {e}"))?;
+        if let Some(name) = table.get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+        {
+            return Ok(name.to_string());
+        }
+    }
+
+    anyhow::bail!(
+        "cannot determine project name in {}\n  Add 'name' to .nex/release.toml, or provide plugin.json or Cargo.toml",
+        plugin_root.display()
+    )
 }
 
 fn git_stage_and_commit(

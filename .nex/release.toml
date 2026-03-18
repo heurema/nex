@@ -1,0 +1,6 @@
+schema_version = 1
+name = "nex"
+
+[[version_files]]
+path = "Cargo.toml"
+format = "toml"
