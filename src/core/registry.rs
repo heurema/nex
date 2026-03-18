@@ -96,4 +96,35 @@ impl Registry {
     pub fn get(&self, name: &str) -> Option<&Package> {
         self.packages.get(name)
     }
+
+    /// Load registry from local cache only (no network fetch).
+    pub fn load_local(path: &Path) -> anyhow::Result<Self> {
+        if !path.exists() {
+            return Ok(Self {
+                version: 2,
+                packages: HashMap::new(),
+            });
+        }
+        let content = fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&content)?)
+    }
+
+    /// Insert or update a package entry.
+    pub fn upsert(&mut self, name: String, package: Package) {
+        self.packages.insert(name, package);
+    }
+
+    /// Write registry to disk atomically.
+    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let json = serde_json::to_string_pretty(self)?;
+        let parent = path.parent().unwrap_or(Path::new("."));
+        fs::create_dir_all(parent)?;
+        let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+        tmp.write_all(json.as_bytes())?;
+        tmp.write_all(b"\n")?;
+        tmp.flush()?;
+        tmp.persist(path)
+            .map_err(|e| anyhow::anyhow!("failed to persist registry: {}", e.error))?;
+        Ok(())
+    }
 }

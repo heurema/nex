@@ -225,6 +225,7 @@ pub fn run(
             tag
         );
     }
+    println!("    → PUBLISH     update local registry");
     if !resolved.post_release_hooks.is_empty() {
         println!(
             "    → HOOKS(post) {} command(s)",
@@ -339,6 +340,7 @@ pub fn run(
             &next_version.to_string(),
             &tag,
             false,
+            Some(&plugin_root),
         ) {
             Ok(()) => {}
             Err(e) => {
@@ -347,6 +349,18 @@ pub fn run(
         }
     } else {
         println!("  --   PROPAGATE   skipped");
+    }
+
+    // PUBLISH — update local registry
+    match crate::commands::publish::compute_entry(&plugin_name, &plugin_root, Some(&tag)) {
+        Ok(pub_entry) => {
+            let reg_path = nex_home.join("registry.json");
+            match crate::commands::publish::write_to_registry(&pub_entry, &reg_path) {
+                Ok(()) => println!("  [OK] PUBLISH     registry updated"),
+                Err(e) => eprintln!("  --   PUBLISH     failed: {e}"),
+            }
+        }
+        Err(e) => eprintln!("  --   PUBLISH     failed: {e}"),
     }
 
     // HOOKS (post_release) — non-zero is a warning only

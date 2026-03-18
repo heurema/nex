@@ -98,11 +98,39 @@ fn find_plugin_entry(manifest: &serde_json::Value, plugin_entry: &str) -> bool {
     false
 }
 
+/// Metadata for adding a new plugin to the marketplace manifest.
+pub struct NewPluginMeta {
+    pub description: String,
+    pub category: String,
+    pub repo_url: String,
+}
+
+/// Read NewPluginMeta from a plugin directory's plugin.json + git remote.
+pub fn read_plugin_meta(plugin_dir: &std::path::Path) -> Option<NewPluginMeta> {
+    let pj = plugin_dir.join(".claude-plugin/plugin.json");
+    let content = std::fs::read_to_string(&pj).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let description = v.get("description")?.as_str()?.to_string();
+    let category = v.get("category").and_then(|c| c.as_str()).unwrap_or("general").to_string();
+    let repo = git2::Repository::discover(plugin_dir).ok()?;
+    let remote = repo.find_remote("origin").ok()?;
+    let url = remote.url()?.to_string();
+    // Ensure .git suffix for HTTPS URLs
+    let repo_url = if url.starts_with("https://") && !url.ends_with(".git") {
+        format!("{url}.git")
+    } else {
+        url
+    };
+    Some(NewPluginMeta { description, category, repo_url })
+}
+
 /// Propagate a new tag reference to the marketplace manifest.
+/// If the plugin doesn't exist in the manifest yet, adds it automatically
+/// when `plugin_root` is provided (reads metadata from plugin.json).
 ///
 /// Steps:
 ///   1. git pull --ff-only
-///   2. Update "ref" field for the plugin entry
+///   2. Update or add plugin entry with new "ref"
 ///   3. git add <manifest>
 ///   4. git commit -m <message>
 ///   5. git push origin HEAD:refs/heads/<branch>
@@ -113,6 +141,7 @@ pub fn propagate(
     next_version: &str,
     tag: &str,
     dry_run: bool,
+    plugin_root: Option<&std::path::Path>,
 ) -> anyhow::Result<()> {
     let repo = git2::Repository::open(&mp.resolved_path)
         .map_err(|e| anyhow::anyhow!("cannot open marketplace repo: {e}"))?;
@@ -132,13 +161,23 @@ pub fn propagate(
         eprintln!("warning: marketplace pull failed ({e}); continuing");
     }
 
-    // 2. Update manifest
+    // 2. Update or add entry in manifest
     let content = std::fs::read_to_string(&manifest_path)
         .map_err(|e| anyhow::anyhow!("failed to read manifest: {e}"))?;
     let mut manifest: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| anyhow::anyhow!("failed to parse manifest: {e}"))?;
 
-    update_plugin_ref(&mut manifest, plugin_entry, tag)?;
+    if let Err(_not_found) = update_plugin_ref(&mut manifest, plugin_entry, tag) {
+        // Plugin not in manifest — try adding it
+        let meta = plugin_root
+            .and_then(read_plugin_meta)
+            .ok_or_else(|| anyhow::anyhow!(
+                "plugin '{}' not in marketplace and no plugin_root to read metadata",
+                plugin_entry
+            ))?;
+        add_plugin_entry(&mut manifest, plugin_entry, tag, &meta)?;
+        println!("  [OK] PROPAGATE  added '{}' to {} marketplace", plugin_entry, mp.name);
+    }
 
     let updated = serde_json::to_string_pretty(&manifest)? + "\n";
     std::fs::write(&manifest_path, &updated)
@@ -321,6 +360,42 @@ fn update_plugin_ref(
     }
 
     anyhow::bail!("plugin '{}' not found in manifest", plugin_entry);
+}
+
+/// Add a new plugin entry to the marketplace manifest.
+fn add_plugin_entry(
+    manifest: &mut serde_json::Value,
+    plugin_entry: &str,
+    tag: &str,
+    meta: &NewPluginMeta,
+) -> anyhow::Result<()> {
+    let new_entry = serde_json::json!({
+        "name": plugin_entry,
+        "description": meta.description,
+        "category": meta.category,
+        "source": {
+            "source": "url",
+            "url": meta.repo_url,
+            "ref": tag
+        },
+        "homepage": meta.repo_url.trim_end_matches(".git")
+    });
+
+    // Try to append to top-level array
+    if let Some(arr) = manifest.as_array_mut() {
+        arr.push(new_entry);
+        return Ok(());
+    }
+
+    // Try to append to nested "plugins" array (emporium format)
+    if let Some(obj) = manifest.as_object_mut() {
+        if let Some(plugins) = obj.get_mut("plugins").and_then(|v| v.as_array_mut()) {
+            plugins.push(new_entry);
+            return Ok(());
+        }
+    }
+
+    anyhow::bail!("cannot add entry: manifest has no array to append to");
 }
 
 fn credential_callback(

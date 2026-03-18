@@ -1,37 +1,89 @@
-use crate::core::dirs::validate_name;
+use crate::core::dirs::{validate_name, Dirs};
+use crate::core::registry::{Package, Registry};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
 pub fn run(name: &str, tag: Option<&str>) -> anyhow::Result<()> {
     validate_name(name)?;
-
     let cwd = std::env::current_dir()?;
-    let format = detect_format(&cwd)?;
+    let entry = compute_entry(name, &cwd, tag)?;
 
-    let repo = git2::Repository::open(&cwd)
+    let json = serde_json::json!({
+        "name": entry.name,
+        "repo": entry.repo,
+        "version": entry.version,
+        "sha256": entry.sha256,
+        "description": entry.description,
+        "platforms": entry.platforms,
+        "category": entry.category,
+    });
+    println!("{}", serde_json::to_string_pretty(&json)?);
+
+    // Auto-write to local registry
+    let dirs = Dirs::new()?;
+    write_to_registry(&entry, &dirs.registry_path())?;
+    eprintln!("Registry updated: {} v{}", entry.name, entry.version);
+
+    Ok(())
+}
+
+/// Computed publish entry — all metadata needed for registry.
+pub struct PublishEntry {
+    pub name: String,
+    pub repo: String,
+    pub version: String,
+    pub sha256: String,
+    pub description: String,
+    pub platforms: Vec<String>,
+    pub category: String,
+}
+
+/// Compute publish entry from a plugin directory.
+pub fn compute_entry(name: &str, plugin_dir: &Path, tag: Option<&str>) -> anyhow::Result<PublishEntry> {
+    validate_name(name)?;
+    let format = detect_format(plugin_dir)?;
+
+    let repo = git2::Repository::open(plugin_dir)
         .map_err(|e| anyhow::anyhow!("not a git repository: {e}"))?;
 
     let repo_url = extract_origin_url(&repo)?;
-    let version = resolve_version(&repo, &cwd, tag)?;
+    let version = resolve_version(&repo, plugin_dir, tag)?;
     let sha256 = compute_sha256_git_tree(&repo)?;
-    let (description, category) = extract_metadata(&cwd)?;
+    let (description, category) = extract_metadata(plugin_dir)?;
     let platforms = match format {
-        PluginFormat::Universal => detect_platforms(&cwd),
+        PluginFormat::Universal => detect_platforms(plugin_dir),
         PluginFormat::ClaudeCodeOnly => vec!["claude-code".to_string()],
     };
 
-    let entry = serde_json::json!({
-        "name": name,
-        "repo": repo_url,
-        "version": version,
-        "sha256": sha256,
-        "description": description,
-        "platforms": platforms,
-        "category": category,
-    });
+    Ok(PublishEntry {
+        name: name.to_string(),
+        repo: repo_url,
+        version,
+        sha256,
+        description,
+        platforms,
+        category,
+    })
+}
 
-    println!("{}", serde_json::to_string_pretty(&entry)?);
+/// Write a publish entry to the local registry (upsert).
+pub fn write_to_registry(entry: &PublishEntry, registry_path: &Path) -> anyhow::Result<()> {
+    let mut reg = Registry::load_local(registry_path)?;
+    reg.upsert(
+        entry.name.clone(),
+        Package {
+            repo: entry.repo.clone(),
+            version: entry.version.clone(),
+            sha256: entry.sha256.clone(),
+            description: entry.description.clone(),
+            platforms: entry.platforms.clone(),
+            category: entry.category.clone(),
+            rubric_score: None,
+            rubric_max: None,
+        },
+    );
+    reg.save(registry_path)?;
     Ok(())
 }
 
