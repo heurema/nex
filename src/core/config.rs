@@ -371,7 +371,7 @@ fn default_remote() -> String { "origin".to_string() }
 fn default_tag_format() -> String { "v{version}".to_string() }
 fn default_tag_message() -> String { "Release {name} v{version}".to_string() }
 fn default_commit_format() -> String { "release: v{version}".to_string() }
-fn default_changelog_mode() -> String { "template".to_string() }
+fn default_changelog_mode() -> String { "auto".to_string() }
 fn default_changelog_filename() -> String { "CHANGELOG.md".to_string() }
 fn default_marketplace_manifest() -> String { ".claude-plugin/marketplace.json".to_string() }
 fn default_commit_format_mp() -> String { "bump {name} ref to v{version}".to_string() }

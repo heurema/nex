@@ -15,7 +15,7 @@ pub fn sync_readme_version(
 
     let content = std::fs::read_to_string(&readme_path)?;
 
-    let updated = content
+    let mut updated = content
         .replace(&format!("v{old_version}"), &format!("v{new_version}"))
         .replace(
             &format!("`{old_version}`"),
@@ -25,6 +25,12 @@ pub fn sync_readme_version(
             &format!("version-{old_version}-"),
             &format!("version-{new_version}-"),
         );
+
+    // Case-insensitive badge: shields.io uses "Version-X.Y.Z-" (capital V)
+    // Also catch stale badges where version already drifted from old_version
+    for prefix in &["Version-", "version-"] {
+        updated = replace_badge_version(&updated, prefix, new_version);
+    }
 
     if updated == content {
         return Ok(false);
@@ -59,6 +65,25 @@ mod tests {
         assert!(updated.contains("version-0.12.0-5b21b6"));
         assert!(updated.contains("v0.12.0"));
         assert!(updated.contains("`0.12.0`"));
+    }
+
+    #[test]
+    fn sync_readme_handles_capital_version_badge() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let readme = temp.path().join("README.md");
+        std::fs::write(
+            &readme,
+            "![Version](https://img.shields.io/badge/Version-4.10.0-5b21b6?style=flat-square)\n",
+        )
+        .expect("write README");
+
+        // old_version is 4.11.0 but badge is stale at 4.10.0 — should still update
+        let changed =
+            sync_readme_version(temp.path(), "4.11.0", "4.12.0").expect("sync readme version");
+        let updated = std::fs::read_to_string(&readme).expect("read README");
+
+        assert!(changed);
+        assert!(updated.contains("Version-4.12.0-5b21b6"), "badge should be updated: {}", updated);
     }
 }
 
@@ -97,6 +122,58 @@ pub fn sync_skill_descriptions(plugin_root: &Path) -> anyhow::Result<bool> {
     }
 
     Ok(modified)
+}
+
+/// Replace `{prefix}X.Y.Z-` with `{prefix}{new_version}-` in badge URLs.
+/// Handles any semver version after the prefix, not just old_version.
+fn replace_badge_version(content: &str, prefix: &str, new_version: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut remaining = content;
+
+    while let Some(start) = remaining.find(prefix) {
+        result.push_str(&remaining[..start]);
+        result.push_str(prefix);
+        let after_prefix = &remaining[start + prefix.len()..];
+
+        // Try to consume a semver (digits.digits.digits) followed by '-'
+        if let Some(ver_end) = find_semver_dash_end(after_prefix) {
+            result.push_str(new_version);
+            result.push('-');
+            remaining = &after_prefix[ver_end..];
+        } else {
+            // Not a version pattern, keep original
+            remaining = after_prefix;
+        }
+    }
+    result.push_str(remaining);
+    result
+}
+
+/// Find end of "X.Y.Z-" pattern at the start of `s`. Returns byte offset after the dash,
+/// or None if the string doesn't start with a semver followed by '-'.
+fn find_semver_dash_end(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let mut dot_count = 0;
+
+    // Consume digits and dots: expect D+.D+.D+-
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            i += 1;
+        } else if bytes[i] == b'.' && dot_count < 2 {
+            dot_count += 1;
+            i += 1;
+            // Must have at least one digit after dot
+            if i >= bytes.len() || !bytes[i].is_ascii_digit() {
+                return None;
+            }
+        } else if bytes[i] == b'-' && dot_count == 2 && i > 0 {
+            return Some(i + 1); // consume the dash
+        } else {
+            return None;
+        }
+    }
+    None
 }
 
 /// Walk directory and collect file paths (simple, no external dep).
