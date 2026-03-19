@@ -62,9 +62,9 @@ pub fn run(name: &str) -> anyhow::Result<()> {
             }
         } else if let Some(plugin) = live.get(name) {
             if plugin.is_installed() {
-                println!("\nInstalled:   discovered (not managed by nex)");
+                println!("\nInstalled:   external (unverified)");
                 for platform in &plugin.platforms {
-                    println!("  \x1b[32m✓\x1b[0m {platform}");
+                    println!("  \x1b[33m?\x1b[0m {platform}");
                 }
             } else {
                 println!("\nInstalled:   no");
@@ -122,9 +122,9 @@ pub fn run(name: &str) -> anyhow::Result<()> {
     );
 
     if plugin.is_installed() {
-        println!("\nInstalled:   discovered (not managed by nex)");
+        println!("\nInstalled:   external (unverified)");
         for platform in &plugin.platforms {
-            println!("  \x1b[32m✓\x1b[0m {platform}");
+            println!("  \x1b[33m?\x1b[0m {platform}");
         }
     } else {
         println!("\nInstalled:   no");

@@ -397,6 +397,8 @@ pub struct PluginView {
     pub gemini_linked: bool,
     pub dev_override: Option<PathBuf>,
     pub drift: Vec<String>,
+    /// true if managed by nex (present in installed.json), false if external/live-discovered
+    pub is_managed: bool,
 }
 
 impl PluginView {
@@ -494,6 +496,7 @@ pub fn build_plugin_views(
                 gemini_linked,
                 dev_override,
                 drift,
+                is_managed: false, // set by load_plugin_views after state check
             }
         })
         .collect();
@@ -510,14 +513,23 @@ pub fn load_plugin_views(dirs: &Dirs) -> anyhow::Result<Vec<PluginView>> {
     let codex_skills = scan_codex_skills(&dirs.codex_skills);
     let gemini_skills = scan_gemini_skills(&dirs.agents_skills);
 
-    Ok(build_plugin_views(
+    let mut views = build_plugin_views(
         &catalog,
         &cc_cache,
         &cc_installed,
         &dev_symlinks,
         &codex_skills,
         &gemini_skills,
-    ))
+    );
+
+    // Mark managed plugins from installed.json
+    let state = crate::core::state::InstalledState::load(&dirs.installed_path())
+        .unwrap_or_default();
+    for view in &mut views {
+        view.is_managed = state.get(&view.name).is_some();
+    }
+
+    Ok(views)
 }
 
 pub fn load_live_plugins(dirs: &Dirs) -> anyhow::Result<HashMap<String, LivePlugin>> {
