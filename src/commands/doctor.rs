@@ -78,6 +78,20 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
     let global_cfg = config::load_global(&dirs.nex_home)?;
     check_release_drift(&dev_symlinks, &dirs, &catalog, &global_cfg, &mut issues);
 
+    // Warn for external (non-managed) live-discovered plugins
+    for view in &live_views {
+        if !view.is_managed && view.is_live_discovered() {
+            issues.push(Issue {
+                plugin: view.name.clone(),
+                check: "origin",
+                severity: Severity::Warn,
+                message: "external (unverified): discovered outside managed tree; version/content not verified by nex".to_string(),
+                fix: String::new(),
+                fix_action: FixAction::None,
+            });
+        }
+    }
+
     // Apply plugin filter: keep only issues for specified plugins (drop global issues too)
     if let Some(names) = filter {
         issues.retain(|i| names.iter().any(|n| n == &i.plugin));

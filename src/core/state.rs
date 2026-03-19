@@ -103,6 +103,8 @@ pub struct InstalledPlugin {
     pub origin: Origin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_applied_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub desired_platforms: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]

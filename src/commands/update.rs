@@ -1,4 +1,4 @@
-use crate::core::{cc_adapter, dirs::Dirs, lock::FileLock, registry::Registry, state, state::InstalledState};
+use crate::core::{cc_adapter, dirs::Dirs, lock::FileLock, profiles, reconcile, registry::Registry, state, state::InstalledState};
 
 pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
@@ -54,13 +54,25 @@ pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
             }
             (Some(inst), Some(pkg)) => {
                 println!("{plugin_name}: v{} → v{}", inst.version, pkg.version);
-                let has_cc = inst.platforms.contains_key("claude-code");
-                let has_codex = inst.platforms.contains_key("codex");
-                let has_gemini = inst.platforms.contains_key("gemini");
 
-                // Preserve origin and last_applied_profile from old record
+                // Reconcile: compute desired platforms from profile/state, not historical install
+                let active_profile = profiles::get_active_profile(&dirs.active_profile_path())
+                    .and_then(|name| {
+                        let path = dirs.nex_profiles_dir().join(format!("{name}.toml"));
+                        profiles::Profile::load(&path).ok()
+                    });
+                let desired = reconcile::resolve_targets(
+                    &pkg.platforms,
+                    false, false, false, // no CLI flags during update
+                    active_profile.as_ref(),
+                    Some(&inst.desired_platforms),
+                );
+                let has_cc = desired.iter().any(|t| *t == crate::core::platform::Platform::ClaudeCode);
+                let has_codex = desired.iter().any(|t| *t == crate::core::platform::Platform::Codex);
+                let has_gemini = desired.iter().any(|t| *t == crate::core::platform::Platform::Gemini);
+
+                // Preserve origin from old record
                 let old_origin = inst.origin;
-                let old_profile = inst.last_applied_profile.clone();
 
                 // ac-004: read scope from installed state instead of hardcoding "user"
                 let scope = inst.platforms.get("claude-code")
@@ -71,11 +83,10 @@ pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
                 // deadlock-fix: call install_inner() directly (we already hold the lock)
                 match crate::commands::install::install_inner(plugin_name, has_cc, has_codex, has_gemini, &scope, &dirs) {
                     Ok(()) => {
-                        // Restore origin + last_applied_profile (install_inner resets them)
+                        // Restore origin (install_inner sets Managed, which is correct for update too)
                         let mut st = state::InstalledState::load(&dirs.installed_path()).unwrap_or_default();
                         if let Some(plugin) = st.plugins.get_mut(plugin_name) {
                             plugin.origin = old_origin;
-                            plugin.last_applied_profile = old_profile;
                         }
                         let _ = st.save(&dirs.installed_path());
                         success += 1;

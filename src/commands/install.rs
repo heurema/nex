@@ -3,6 +3,7 @@ use crate::core::{
     hash::compute_sha256,
     lock::FileLock,
     platform,
+    profiles,
     reconcile,
     registry::Registry,
     state,
@@ -47,13 +48,27 @@ pub fn install_inner(
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("Package '{name}' not found in registry"))?;
 
+    // Load active profile for reconcile precedence
+    let active_profile = profiles::get_active_profile(&dirs.active_profile_path())
+        .and_then(|name| {
+            let path = dirs.nex_profiles_dir().join(format!("{name}.toml"));
+            profiles::Profile::load(&path).ok()
+        });
+
+    // Check if there's a previous desired_platforms in state
+    let existing_state = state::InstalledState::load(&dirs.installed_path())?;
+    let desired_from_state = existing_state
+        .get(name)
+        .map(|p| p.desired_platforms.as_slice());
+
     // Reconcile: compute target platforms using precedence rules
     let targets = reconcile::resolve_targets(
         &pkg.platforms,
         claude_code,
         codex,
         gemini,
-        None, // profile wiring deferred to Stage 3
+        active_profile.as_ref(),
+        desired_from_state,
     );
     if targets.is_empty() {
         anyhow::bail!(
@@ -201,7 +216,10 @@ pub fn install_inner(
             source: skill_dir.to_string_lossy().to_string(),
             platforms: platform_statuses,
             origin: state::Origin::Managed,
-            last_applied_profile: None,
+            last_applied_profile: active_profile.as_ref().and_then(|_|
+                profiles::get_active_profile(&dirs.active_profile_path())
+            ),
+            desired_platforms: targets.iter().map(|t| t.label().to_string()).collect(),
         },
     );
     st.save(&dirs.installed_path())?;

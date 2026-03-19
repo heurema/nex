@@ -2,7 +2,10 @@ use crate::core::{platform::Platform, profiles::Profile, state::PlatformStatus, 
 use std::collections::HashMap;
 
 /// Compute target platforms for a plugin, applying precedence:
-///   CLI flags > active profile > all detected CLIs
+///   1. CLI flags (if any set)
+///   2. Active profile platform config
+///   3. Desired platforms from state (previous reconcile result)
+///   4. All detected CLIs
 /// Then intersect with package-declared platform support.
 pub fn resolve_targets(
     pkg_platforms: &[String],
@@ -10,6 +13,7 @@ pub fn resolve_targets(
     cli_codex: bool,
     cli_gemini: bool,
     profile: Option<&Profile>,
+    desired_from_state: Option<&[String]>,
 ) -> Vec<Platform> {
     let detected = crate::core::platform::detect_platforms();
 
@@ -25,8 +29,18 @@ pub fn resolve_targets(
             prof.platforms.codex,
             prof.platforms.gemini,
         )
+    } else if let Some(desired) = desired_from_state {
+        // Precedence 3: desired platforms from previous reconcile
+        if !desired.is_empty() {
+            detected
+                .into_iter()
+                .filter(|t| desired.iter().any(|d| d == t.label()))
+                .collect()
+        } else {
+            detected
+        }
     } else {
-        // Precedence 3: all detected CLIs
+        // Precedence 4: all detected CLIs
         detected
     };
 

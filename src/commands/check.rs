@@ -31,7 +31,9 @@ pub fn run(_refresh: bool) -> anyhow::Result<()> {
             "\u{2014}"
         };
 
-        let status = if v.drift.is_empty() {
+        let status = if !v.is_managed && v.is_live_discovered() {
+            "\x1b[33mUNVERIFIED\x1b[0m".to_string()
+        } else if v.drift.is_empty() {
             "\x1b[32mOK\x1b[0m".to_string()
         } else if v.drift.iter().any(|d| d.contains("cache=")) {
             update_count += 1;

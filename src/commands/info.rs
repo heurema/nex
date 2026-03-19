@@ -32,6 +32,12 @@ pub fn run(name: &str) -> anyhow::Result<()> {
                 "update available"
             };
             println!("\nInstalled:   v{} ({status})", installed.version);
+
+            // Show desired vs realized
+            if !installed.desired_platforms.is_empty() {
+                println!("Desired:     {}", installed.desired_platforms.join(", "));
+            }
+            println!("Realized:");
             let mut plats: Vec<(&String, _)> = installed.platforms.iter().collect();
             plats.sort_by_key(|(p, _)| (*p).clone());
             for (plat, pstatus) in &plats {
@@ -42,11 +48,23 @@ pub fn run(name: &str) -> anyhow::Result<()> {
                 };
                 println!("  {icon} {plat}");
             }
+            // Show drift
+            let desired_set: std::collections::HashSet<&str> =
+                installed.desired_platforms.iter().map(|s| s.as_str()).collect();
+            let realized_set: std::collections::HashSet<&str> =
+                installed.platforms.iter()
+                    .filter(|(_, ps)| ps.status == Status::Ok)
+                    .map(|(p, _)| p.as_str())
+                    .collect();
+            let missing: Vec<&&str> = desired_set.difference(&realized_set).collect();
+            if !missing.is_empty() {
+                println!("Drift:       missing [{}]", missing.iter().map(|s| **s).collect::<Vec<_>>().join(", "));
+            }
         } else if let Some(plugin) = live.get(name) {
             if plugin.is_installed() {
-                println!("\nInstalled:   discovered (not managed by nex)");
+                println!("\nInstalled:   external (unverified)");
                 for platform in &plugin.platforms {
-                    println!("  \x1b[32m✓\x1b[0m {platform}");
+                    println!("  \x1b[33m?\x1b[0m {platform}");
                 }
             } else {
                 println!("\nInstalled:   no");
@@ -104,9 +122,9 @@ pub fn run(name: &str) -> anyhow::Result<()> {
     );
 
     if plugin.is_installed() {
-        println!("\nInstalled:   discovered (not managed by nex)");
+        println!("\nInstalled:   external (unverified)");
         for platform in &plugin.platforms {
-            println!("  \x1b[32m✓\x1b[0m {platform}");
+            println!("  \x1b[33m?\x1b[0m {platform}");
         }
     } else {
         println!("\nInstalled:   no");
