@@ -3,6 +3,7 @@ use crate::core::{
     hash::compute_sha256,
     lock::FileLock,
     platform,
+    reconcile,
     registry::Registry,
     state,
 };
@@ -46,21 +47,18 @@ pub fn install_inner(
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("Package '{name}' not found in registry"))?;
 
-    let detected = platform::detect_platforms();
-    let targets = platform::filter_platforms(&detected, claude_code, codex, gemini);
-    if targets.is_empty() {
-        anyhow::bail!("No target CLIs detected. Install claude, codex, or gemini first.");
-    }
-
-    // ac-008: filter targets by pkg.platforms from registry
-    let targets: Vec<platform::Platform> = targets
-        .into_iter()
-        .filter(|t| pkg.platforms.iter().any(|p| p == t.label()))
-        .collect();
+    // Reconcile: compute target platforms using precedence rules
+    let targets = reconcile::resolve_targets(
+        &pkg.platforms,
+        claude_code,
+        codex,
+        gemini,
+        None, // profile wiring deferred to Stage 3
+    );
     if targets.is_empty() {
         anyhow::bail!(
-            "Package '{name}' does not support any of the detected platforms. \
-             Supported: [{}]",
+            "No installable platforms for '{name}'. \
+             Detected CLIs must overlap with supported platforms: [{}]",
             pkg.platforms.join(", ")
         );
     }
@@ -202,19 +200,28 @@ pub fn install_inner(
             installed_at: chrono_now(),
             source: skill_dir.to_string_lossy().to_string(),
             platforms: platform_statuses,
+            origin: state::Origin::Managed,
+            last_applied_profile: None,
         },
     );
     st.save(&dirs.installed_path())?;
 
-    if ok_count == total {
+    // Drift detection: check if all target platforms are realized
+    let drift = reconcile::detect_drift(&targets, &st.get(name).unwrap().platforms);
+    if drift.is_empty() {
         println!(
             "\nInstalled {name} v{} ({ok_count}/{total} platforms)",
             pkg.version
         );
     } else {
+        eprintln!(
+            "warning: {name}: platform drift detected — missing: [{}]",
+            drift.join(", ")
+        );
         println!(
-            "\nPartially installed {name} v{} ({ok_count}/{total} platforms)",
-            pkg.version
+            "\nPartially installed {name} v{} ({ok_count}/{total} platforms, {} in drift)",
+            pkg.version,
+            drift.len()
         );
     }
     println!("Restart active CLI sessions to apply changes.");
@@ -462,7 +469,21 @@ fn install_agent_skill(
         .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot canonicalize skill dir: {e}"))?;
 
-    // Try preferred platform first, then the other agent adapter, then root SKILL.md.
+    // Determine format_version to decide fallback policy
+    let format_version = {
+        let pj = skill_dir.join(".claude-plugin/plugin.json");
+        if pj.exists() {
+            fs::read_to_string(&pj)
+                .ok()
+                .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                .and_then(|v| v.get("format_version").and_then(|x| x.as_u64()))
+                .unwrap_or(0) as u32
+        } else {
+            0
+        }
+    };
+
+    // Resolve platform adapter: preferred dir, then fallback (legacy only)
     let (first, second) = match preferred {
         platform::Platform::Gemini => ("platforms/gemini", "platforms/codex"),
         _ => ("platforms/codex", "platforms/gemini"),
@@ -470,15 +491,32 @@ fn install_agent_skill(
 
     let source = if skill_dir.join(first).exists() {
         skill_dir.join(first)
+    } else if format_version >= 2 {
+        // Strict: format_version >= 2 requires dedicated platform adapter
+        anyhow::bail!(
+            "{name}: no dedicated adapter at {}. \
+             format_version >= 2 does not allow fallback. \
+             Create platforms/{} or downgrade format_version.",
+            first,
+            preferred.label()
+        );
     } else if skill_dir.join(second).exists() {
+        eprintln!(
+            "warning: {name}: using fallback adapter for {}. Create a dedicated platform adapter.",
+            preferred.label()
+        );
         skill_dir.join(second)
     } else {
         let root_skill = skill_dir.join("SKILL.md");
         if !root_skill.exists() {
             anyhow::bail!("No platform adapter or root SKILL.md found");
         }
-        // Fix 4: agents expect a directory target; create a wrapper directory
-        // platforms/_fallback/ containing SKILL.md and use that as symlink target.
+        eprintln!(
+            "warning: {name}: using root SKILL.md fallback for {}. Create platforms/{} adapter.",
+            preferred.label(),
+            preferred.label()
+        );
+        // Legacy fallback: agents expect a directory target; create wrapper
         let fallback_dir = skill_dir.join("platforms/_fallback");
         fs::create_dir_all(&fallback_dir)?;
         let fallback_skill = fallback_dir.join("SKILL.md");

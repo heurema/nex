@@ -153,6 +153,9 @@ pub fn run(
         );
     }
 
+    // Platform contract check (format_version >= 2 requires all 3 platform dirs)
+    preflight_platform_contract(&plugin_root)?;
+
     // Resolve tag string
     let tag = expand_placeholders(
         &resolved.tag_format,
@@ -456,6 +459,36 @@ fn preflight_clean_tree(repo: &git2::Repository) -> anyhow::Result<()> {
             dirty.join("\n  ")
         );
     }
+    Ok(())
+}
+
+fn preflight_platform_contract(plugin_root: &Path) -> anyhow::Result<()> {
+    let pj_path = plugin_root.join(".claude-plugin/plugin.json");
+    if !pj_path.exists() {
+        return Ok(()); // not a plugin with plugin.json — skip
+    }
+    let content = std::fs::read_to_string(&pj_path)?;
+    let v: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("failed to parse plugin.json: {e}"))?;
+    let format_version = v.get("format_version").and_then(|x| x.as_u64()).unwrap_or(0);
+    if format_version < 2 {
+        return Ok(()); // legacy format — no strict platform check
+    }
+    let recognized = ["claude-code", "codex", "gemini"];
+    let missing: Vec<&str> = recognized
+        .iter()
+        .filter(|p| !plugin_root.join("platforms").join(p).is_dir())
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "PREFLIGHT failed — format_version >= 2 requires all 3 platform dirs.\n  \
+             Missing: [{}]\n  \
+             Create the missing directories or downgrade format_version.",
+            missing.join(", ")
+        );
+    }
+    println!("  [OK] PLATFORMS   all 3 platform dirs present");
     Ok(())
 }
 

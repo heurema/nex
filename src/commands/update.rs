@@ -1,4 +1,4 @@
-use crate::core::{cc_adapter, dirs::Dirs, lock::FileLock, registry::Registry, state::InstalledState};
+use crate::core::{cc_adapter, dirs::Dirs, lock::FileLock, registry::Registry, state, state::InstalledState};
 
 pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
@@ -58,6 +58,10 @@ pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
                 let has_codex = inst.platforms.contains_key("codex");
                 let has_gemini = inst.platforms.contains_key("gemini");
 
+                // Preserve origin and last_applied_profile from old record
+                let old_origin = inst.origin;
+                let old_profile = inst.last_applied_profile.clone();
+
                 // ac-004: read scope from installed state instead of hardcoding "user"
                 let scope = inst.platforms.get("claude-code")
                     .and_then(|p| p.scope.as_deref())
@@ -66,7 +70,16 @@ pub fn run(name: Option<&str>, all: bool) -> anyhow::Result<()> {
 
                 // deadlock-fix: call install_inner() directly (we already hold the lock)
                 match crate::commands::install::install_inner(plugin_name, has_cc, has_codex, has_gemini, &scope, &dirs) {
-                    Ok(()) => success += 1,
+                    Ok(()) => {
+                        // Restore origin + last_applied_profile (install_inner resets them)
+                        let mut st = state::InstalledState::load(&dirs.installed_path()).unwrap_or_default();
+                        if let Some(plugin) = st.plugins.get_mut(plugin_name) {
+                            plugin.origin = old_origin;
+                            plugin.last_applied_profile = old_profile;
+                        }
+                        let _ = st.save(&dirs.installed_path());
+                        success += 1;
+                    }
                     Err(e) => {
                         eprintln!("{plugin_name}: update failed: {e}");
                         failed += 1;

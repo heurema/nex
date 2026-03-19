@@ -37,6 +37,7 @@ pub struct PublishEntry {
     pub description: String,
     pub platforms: Vec<String>,
     pub category: String,
+    pub release_class: String,
 }
 
 /// Compute publish entry from a plugin directory.
@@ -56,6 +57,20 @@ pub fn compute_entry(name: &str, plugin_dir: &Path, tag: Option<&str>) -> anyhow
         PluginFormat::ClaudeCodeOnly => vec!["claude-code".to_string()],
     };
 
+    let release_class = match format {
+        PluginFormat::ClaudeCodeOnly => "legacy".to_string(),
+        PluginFormat::Universal => {
+            let all_three = ["claude-code", "codex", "gemini"]
+                .iter()
+                .all(|p| platforms.iter().any(|pl| pl == p));
+            if all_three {
+                "universal".to_string()
+            } else {
+                "partial".to_string()
+            }
+        }
+    };
+
     Ok(PublishEntry {
         name: name.to_string(),
         repo: repo_url,
@@ -64,6 +79,7 @@ pub fn compute_entry(name: &str, plugin_dir: &Path, tag: Option<&str>) -> anyhow
         description,
         platforms,
         category,
+        release_class,
     })
 }
 
@@ -86,6 +102,7 @@ pub fn write_to_registry(entry: &PublishEntry, registry_path: &Path) -> anyhow::
             description: entry.description.clone(),
             platforms: entry.platforms.clone(),
             category: entry.category.clone(),
+            release_class: Some(entry.release_class.clone()),
             rubric_score: None,
             rubric_max: None,
         },
@@ -108,13 +125,33 @@ fn detect_format(dir: &Path) -> anyhow::Result<PluginFormat> {
     let has_cc_plugin = dir.join(".claude-plugin/plugin.json").exists();
 
     if has_skill_md && has_platforms {
-        // Verify at least one recognized platform
+        // Read format_version from plugin.json (if present)
+        let format_version = read_format_version(dir);
+
         let recognized = ["claude-code", "codex", "gemini"];
-        let has_any = recognized.iter().any(|p| dir.join("platforms").join(p).is_dir());
-        if !has_any {
-            anyhow::bail!(
-                "platforms/ has no recognized subdirectory (claude-code, codex, gemini)"
-            );
+        if format_version >= 2 {
+            // Strict: format_version >= 2 requires all 3 platform dirs
+            let missing: Vec<&str> = recognized
+                .iter()
+                .filter(|p| !dir.join("platforms").join(p).is_dir())
+                .copied()
+                .collect();
+            if !missing.is_empty() {
+                anyhow::bail!(
+                    "format_version >= 2 requires all 3 platform dirs.\n  \
+                     Missing: [{}]\n  \
+                     Run `nex convert` or create the missing directories.",
+                    missing.join(", ")
+                );
+            }
+        } else {
+            // Legacy: at least one recognized platform dir
+            let has_any = recognized.iter().any(|p| dir.join("platforms").join(p).is_dir());
+            if !has_any {
+                anyhow::bail!(
+                    "platforms/ has no recognized subdirectory (claude-code, codex, gemini)"
+                );
+            }
         }
         Ok(PluginFormat::Universal)
     } else if has_cc_plugin {
@@ -247,6 +284,17 @@ fn detect_platforms(dir: &Path) -> Vec<String> {
         }
     }
     platforms
+}
+
+/// Read format_version from .claude-plugin/plugin.json (0 if absent or unparseable).
+fn read_format_version(dir: &Path) -> u32 {
+    let path = dir.join(".claude-plugin/plugin.json");
+    if !path.exists() {
+        return 0;
+    }
+    let Ok(content) = fs::read_to_string(&path) else { return 0 };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else { return 0 };
+    v.get("format_version").and_then(|x| x.as_u64()).unwrap_or(0) as u32
 }
 
 /// Compute a reproducible SHA-256 over the git tree at HEAD.

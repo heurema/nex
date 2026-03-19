@@ -49,6 +49,20 @@ pub enum Status {
     Ok,
     Failed,
     Skipped,
+    Drift,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Origin {
+    Managed,
+    External,
+}
+
+impl Default for Origin {
+    fn default() -> Self {
+        Self::Managed
+    }
 }
 
 impl Status {
@@ -57,6 +71,7 @@ impl Status {
             Self::Ok => "ok",
             Self::Failed => "failed",
             Self::Skipped => "skipped",
+            Self::Drift => "drift",
         }
     }
 }
@@ -84,6 +99,10 @@ pub struct InstalledPlugin {
     pub installed_at: String,
     pub source: String,
     pub platforms: HashMap<String, PlatformStatus>,
+    #[serde(default)]
+    pub origin: Origin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_applied_profile: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]

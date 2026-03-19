@@ -22,6 +22,8 @@ pub struct Package {
     pub description: String,
     pub platforms: Vec<String>,
     pub category: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_class: Option<String>,
     #[serde(default)]
     pub rubric_score: Option<u32>,
     #[serde(default)]

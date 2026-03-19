@@ -9,5 +9,6 @@ pub mod lock;
 pub mod marketplace;
 pub mod platform;
 pub mod profiles;
+pub mod reconcile;
 pub mod registry;
 pub mod state;

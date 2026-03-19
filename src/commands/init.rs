@@ -10,14 +10,19 @@ pub fn run(name: &str) -> anyhow::Result<()> {
     fs::create_dir(target)
         .map_err(|e| anyhow::anyhow!("cannot create '{}': {e}", name))?;
 
-    // Universal structure: root + platforms/claude-code/ with CC plugin layout
+    // Universal structure: root + all 3 platform dirs
     let cc_dir = target.join("platforms/claude-code");
+    let codex_dir = target.join("platforms/codex");
+    let gemini_dir = target.join("platforms/gemini");
+
     fs::create_dir_all(target.join(".claude-plugin"))?;
     fs::create_dir_all(cc_dir.join(".claude-plugin"))?;
     fs::create_dir_all(cc_dir.join("skills"))?;
     fs::create_dir_all(cc_dir.join("commands"))?;
     fs::create_dir_all(cc_dir.join("agents"))?;
     fs::create_dir_all(cc_dir.join("hooks"))?;
+    fs::create_dir_all(&codex_dir)?;
+    fs::create_dir_all(&gemini_dir)?;
 
     // Create root .claude-plugin/plugin.json (metadata)
     let plugin_json = serde_json::json!({
@@ -25,7 +30,8 @@ pub fn run(name: &str) -> anyhow::Result<()> {
         "version": "0.1.0",
         "description": format!("A nex plugin: {name}"),
         "category": "general",
-        "platforms": ["claude-code"],
+        "platforms": ["claude-code", "codex", "gemini"],
+        "format_version": 2,
     });
     let plugin_json_str = serde_json::to_string_pretty(&plugin_json)?;
     fs::write(target.join(".claude-plugin/plugin.json"), &plugin_json_str)?;
@@ -41,20 +47,22 @@ pub fn run(name: &str) -> anyhow::Result<()> {
         serde_json::to_string_pretty(&cc_plugin_json)?,
     )?;
 
-    // Create SKILL.md
+    // Create SKILL.md (root + all 3 platforms)
     let skill_md = format!(
         "# {name}\n\nA new nex plugin.\n\n## Usage\n\nDescribe how to use this plugin.\n\n## Example\n\n```\n# example usage\n```\n"
     );
     fs::write(target.join("SKILL.md"), &skill_md)?;
-
-    // Create platforms/claude-code/SKILL.md
     fs::write(cc_dir.join("SKILL.md"), &skill_md)?;
+    fs::write(codex_dir.join("SKILL.md"), &skill_md)?;
+    fs::write(gemini_dir.join("SKILL.md"), &skill_md)?;
 
     println!("Initialized plugin '{name}' in ./{name}/");
-    println!("  .claude-plugin/plugin.json            (root metadata)");
+    println!("  .claude-plugin/plugin.json            (root metadata, format_version=2)");
     println!("  SKILL.md");
     println!("  platforms/claude-code/");
     println!("    .claude-plugin/plugin.json          (CC manifest)");
     println!("    skills/  commands/  agents/  hooks/");
+    println!("  platforms/codex/");
+    println!("  platforms/gemini/");
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::core::{cc_adapter, dirs::Dirs, profiles};
+use crate::core::{cc_adapter, dirs::Dirs, profiles, reconcile};
 
 pub fn run_list() -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
@@ -57,7 +57,14 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
 
     println!("Applying profile: {name}\n");
 
-    if profile.platforms.codex {
+    // Reconcile: compute enabled platforms from profile (no CLI flags override during apply)
+    let all_platforms = vec!["claude-code".to_string(), "codex".to_string(), "gemini".to_string()];
+    let active_targets = reconcile::resolve_targets(&all_platforms, false, false, false, Some(&profile));
+
+    let has_codex = active_targets.iter().any(|t| t.label() == "codex");
+    let has_gemini = active_targets.iter().any(|t| t.label() == "gemini");
+
+    if has_codex {
         sync_agent_profile_links(
             &dirs.codex_skills,
             "Codex",
@@ -67,7 +74,7 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
             &dirs,
         )?;
     }
-    if profile.platforms.gemini {
+    if has_gemini {
         sync_agent_profile_links(
             &dirs.agents_skills,
             "Gemini",
@@ -136,14 +143,40 @@ fn sync_agent_profile_links(
             dirs.skills_store.join(plugin_name)
         };
 
+        // Check format_version for fallback policy
+        let format_version = {
+            let pj = source.join(".claude-plugin/plugin.json");
+            if pj.exists() {
+                std::fs::read_to_string(&pj)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|v| v.get("format_version").and_then(|x| x.as_u64()))
+                    .unwrap_or(0) as u32
+            } else {
+                0
+            }
+        };
+
         let preferred_dir = source.join(preferred_adapter);
         let fallback_dir = source.join(fallback_adapter);
         let root_skill = source.join("SKILL.md");
         let link_target = if preferred_dir.exists() {
             preferred_dir
+        } else if format_version >= 2 {
+            // Strict: no fallback for format_version >= 2
+            eprintln!(
+                "  [FAIL] {plugin_name} \u{2014} no {platform_name} adapter (format_version >= 2, fallback disabled)"
+            );
+            continue;
         } else if fallback_dir.exists() {
+            eprintln!(
+                "warning: {plugin_name}: using fallback adapter for {platform_name}. Dedicated platform adapter recommended."
+            );
             fallback_dir
         } else if root_skill.is_file() {
+            eprintln!(
+                "warning: {plugin_name}: using root SKILL.md fallback for {platform_name}. Dedicated platform adapter recommended."
+            );
             source.clone()
         } else {
             println!(
