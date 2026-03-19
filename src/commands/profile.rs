@@ -1,4 +1,4 @@
-use crate::core::{cc_adapter, dirs::Dirs, profiles, reconcile};
+use crate::core::{cc_adapter, dirs::Dirs, profiles, reconcile, registry::Registry, state};
 
 pub fn run_list() -> anyhow::Result<()> {
     let dirs = Dirs::new()?;
@@ -59,7 +59,7 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
 
     // Reconcile: compute enabled platforms from profile (no CLI flags override during apply)
     let all_platforms = vec!["claude-code".to_string(), "codex".to_string(), "gemini".to_string()];
-    let active_targets = reconcile::resolve_targets(&all_platforms, false, false, false, Some(&profile));
+    let active_targets = reconcile::resolve_targets(&all_platforms, false, false, false, Some(&profile), None);
 
     let has_codex = active_targets.iter().any(|t| t.label() == "codex");
     let has_gemini = active_targets.iter().any(|t| t.label() == "gemini");
@@ -106,6 +106,26 @@ pub fn run_apply(name: &str) -> anyhow::Result<()> {
             }
         }
     }
+
+    // Update desired_platforms in state for each managed plugin in this profile
+    let registry = Registry::load(&dirs.registry_path(), false).ok();
+    let mut st = state::InstalledState::load(&dirs.installed_path()).unwrap_or_default();
+    for plugin_name in &profile.plugins.enable {
+        if let Some(plugin) = st.plugins.get_mut(plugin_name) {
+            let pkg_platforms: Vec<String> = registry.as_ref()
+                .and_then(|r| r.get(plugin_name))
+                .map(|p| p.platforms.clone())
+                .unwrap_or_default();
+            if !pkg_platforms.is_empty() {
+                let desired = reconcile::resolve_targets(
+                    &pkg_platforms, false, false, false, Some(&profile), None,
+                );
+                plugin.desired_platforms = desired.iter().map(|t| t.label().to_string()).collect();
+                plugin.last_applied_profile = Some(name.to_string());
+            }
+        }
+    }
+    let _ = st.save(&dirs.installed_path());
 
     // Set as active
     profiles::set_active_profile(&dirs.active_profile_path(), name)?;
