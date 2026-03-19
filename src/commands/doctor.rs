@@ -69,7 +69,7 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
     let live_views = cc_adapter::load_plugin_views(&dirs)?;
 
     check_nex_devtools(&dirs, &mut issues);
-    check_emporium_drift(&catalog, &cc_cache, &mut issues);
+    check_emporium_drift(&catalog, &cc_cache, &dirs, &mut issues);
     check_duplicate_plugins(&catalog, &dev_symlinks, &dirs, &mut issues);
     check_stale_dev_symlinks(&dev_symlinks, &dirs, &mut issues);
     check_orphan_cache(&catalog, &dirs, &mut issues);
@@ -181,6 +181,11 @@ pub fn run(deep: bool, fix: bool, filter: Option<&[String]>) -> anyhow::Result<(
 
     if fix {
         println!("\nApplying fixes...\n");
+        // GC stale nex-* marketplaces
+        let gc_removed = cc_adapter::gc_nex_marketplaces(&dirs);
+        if !gc_removed.is_empty() {
+            println!("GC: removed stale marketplaces: {}", gc_removed.join(", "));
+        }
         let fixed = apply_fixes(&issues, &global_cfg)?;
         let remaining = issue_count - fixed;
 
@@ -847,6 +852,7 @@ fn check_nex_devtools(dirs: &Dirs, issues: &mut Vec<Issue>) {
 fn check_emporium_drift(
     catalog: &HashMap<String, cc_adapter::CatalogPlugin>,
     cc_cache: &HashMap<String, String>,
+    dirs: &Dirs,
     issues: &mut Vec<Issue>,
 ) {
     for (name, cat) in catalog {
@@ -855,13 +861,14 @@ fn check_emporium_drift(
         }
         if let Some(cached) = cc_cache.get(name) {
             if *cached != cat.version {
+                let cache_dir = dirs.claude_plugins.join("cache").join("emporium").join(name);
                 issues.push(Issue {
                     plugin: name.clone(),
                     check: "emporium_drift",
                     severity: Severity::Warn,
                     message: format!("emporium=v{} but CC cache=v{cached}", cat.version),
-                    fix: "restart `claude` to pull updated cache".to_string(),
-                    fix_action: FixAction::None,
+                    fix: format!("invalidate CC cache + /plugin-reload"),
+                    fix_action: FixAction::RemoveDir(cache_dir),
                 });
             }
         }
