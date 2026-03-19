@@ -5,7 +5,7 @@
 **Cross-CLI plugin distribution for AI agents**
 
 ![Rust](https://img.shields.io/badge/Rust-CLI-5b21b6?style=flat-square)
-![Version](https://img.shields.io/badge/version-0.14.0-5b21b6?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.14.1-5b21b6?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-5b21b6?style=flat-square)
 
 ```bash
