@@ -12,6 +12,7 @@ pub fn run(_refresh: bool) -> anyhow::Result<()> {
 
     let mut update_count = 0;
     let mut drift_count = 0;
+    let mut unverified_count = 0;
 
     for v in &views {
         let emp = v
@@ -32,6 +33,7 @@ pub fn run(_refresh: bool) -> anyhow::Result<()> {
         };
 
         let status = if !v.is_managed && v.is_live_discovered() {
+            unverified_count += 1;
             "\x1b[33mUNVERIFIED\x1b[0m".to_string()
         } else if v.drift.is_empty() {
             "\x1b[32mOK\x1b[0m".to_string()
@@ -57,7 +59,10 @@ pub fn run(_refresh: bool) -> anyhow::Result<()> {
     if drift_count > 0 {
         println!("{drift_count} drift(s) detected. Run `nex doctor` for details.");
     }
-    if update_count == 0 && drift_count == 0 {
+    if unverified_count > 0 {
+        println!("{unverified_count} external plugin(s) unverified. Run `nex install <name>` to manage.");
+    }
+    if update_count == 0 && drift_count == 0 && unverified_count == 0 {
         println!("\nAll plugins in sync.");
     }
 
