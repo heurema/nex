@@ -662,18 +662,24 @@ fn check_cc_symlinks(name: &str, plugin: &InstalledPlugin, dirs: &Dirs, issues: 
     let parts: Vec<&str> = ref_name.split('@').collect();
     if parts.len() == 2 {
         let mp_name = parts[1];
-        let link = dirs
+        // Check both marketplace layouts: marketplaces/<mp>/plugins/<name> and cache/<mp>/<name>
+        let mp_link = dirs
             .claude_plugins
             .join("marketplaces")
             .join(mp_name)
             .join("plugins")
             .join(name);
-        if !link.exists() {
+        let cache_link = dirs
+            .claude_plugins
+            .join("cache")
+            .join(mp_name)
+            .join(name);
+        if !mp_link.exists() && !cache_link.exists() {
             issues.push(Issue {
                 plugin: name.to_string(),
                 check: "cc_symlink",
                 severity: Severity::Warn,
-                message: format!("marketplace symlink missing: {}", link.display()),
+                message: format!("marketplace entry missing for {}@{}", name, mp_name),
                 fix: format!("nex install {name}"),
                 fix_action: FixAction::None,
             });
