@@ -170,6 +170,24 @@ path = ".claude-plugin/plugin.json"
 format = "json"
 ```
 
+With release hooks (auto-update installed plugin after release):
+
+```toml
+marketplace = "emporium"
+
+[[version_files]]
+path = ".claude-plugin/plugin.json"
+format = "json"
+
+[hooks]
+pre_release = []
+post_release = [
+  "claude plugin marketplace update emporium",
+  "claude plugin update my-plugin@emporium",
+  "echo '\\n  Run /reload-plugins in active session to apply.'"
+]
+```
+
 For non-plugin Rust projects:
 
 ```toml
