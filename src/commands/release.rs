@@ -332,7 +332,9 @@ pub fn run(
             modified_files.push(resolved.changelog_filename.clone());
             println!("  [OK] CHANGELOG   inserted [{}] section", next_version);
         } else if !changelog_path.exists() {
-            println!("  --   CHANGELOG   {} not found, skipped", resolved.changelog_filename);
+            // This branch should no longer be reached since changelog functions now create the file.
+            // Keep as fallback in case the write failed silently.
+            println!("  --   CHANGELOG   {} could not be created", resolved.changelog_filename);
         } else {
             println!("  --   CHANGELOG   section already exists");
         }

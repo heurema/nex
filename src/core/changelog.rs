@@ -3,19 +3,19 @@ use std::process::Command;
 
 /// Insert an empty `## [X.Y.Z] - YYYY-MM-DD` section at the top of CHANGELOG.md.
 ///
-/// If the file does not exist, this is a no-op and returns `false`.
-/// Returns `true` when the file was modified.
+/// If the file does not exist, creates it with a `# Changelog` header.
+/// Returns `true` when the file was created or modified.
 pub fn insert_template_section(
     changelog_path: &Path,
     version: &str,
     date: &str,
 ) -> anyhow::Result<bool> {
-    if !changelog_path.exists() {
-        return Ok(false);
-    }
-
-    let existing = std::fs::read_to_string(changelog_path)
-        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", changelog_path.display()))?;
+    let existing = if changelog_path.exists() {
+        std::fs::read_to_string(changelog_path)
+            .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", changelog_path.display()))?
+    } else {
+        "# Changelog\n\n".to_string()
+    };
 
     let header = format!("## [{version}] - {date}\n\n");
 
@@ -24,7 +24,18 @@ pub fn insert_template_section(
         return Ok(false);
     }
 
-    let new_content = format!("{header}{existing}");
+    // Insert after the first heading line (# Changelog), or prepend if no heading
+    let new_content = if let Some(idx) = existing.find('\n') {
+        let after_heading = &existing[idx + 1..];
+        if after_heading.starts_with('\n') {
+            // "# Changelog\n\n..." → insert after the blank line
+            format!("{}{header}{}", &existing[..idx + 2], &existing[idx + 2..])
+        } else {
+            format!("{}\n{header}{}", &existing[..idx + 1], after_heading)
+        }
+    } else {
+        format!("{existing}\n{header}")
+    };
 
     std::fs::write(changelog_path, new_content)
         .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", changelog_path.display()))?;
@@ -35,20 +46,20 @@ pub fn insert_template_section(
 /// Insert a `## [X.Y.Z] - YYYY-MM-DD` section with auto-generated content
 /// from `git log --oneline <prev_tag>..HEAD`.
 ///
-/// If the file does not exist, this is a no-op and returns `false`.
-/// Returns `true` when the file was modified.
+/// If the file does not exist, creates it with a `# Changelog` header.
+/// Returns `true` when the file was created or modified.
 pub fn insert_auto_section(
     changelog_path: &Path,
     plugin_root: &Path,
     version: &str,
     date: &str,
 ) -> anyhow::Result<bool> {
-    if !changelog_path.exists() {
-        return Ok(false);
-    }
-
-    let existing = std::fs::read_to_string(changelog_path)
-        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", changelog_path.display()))?;
+    let existing = if changelog_path.exists() {
+        std::fs::read_to_string(changelog_path)
+            .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", changelog_path.display()))?
+    } else {
+        "# Changelog\n\n".to_string()
+    };
 
     if existing.contains(&format!("## [{version}]")) {
         return Ok(false);
@@ -68,7 +79,17 @@ pub fn insert_auto_section(
     }
     section.push('\n');
 
-    let new_content = format!("{section}{existing}");
+    // Insert after the first heading line (# Changelog), or prepend if no heading
+    let new_content = if let Some(idx) = existing.find('\n') {
+        let after_heading = &existing[idx + 1..];
+        if after_heading.starts_with('\n') {
+            format!("{}{section}{}", &existing[..idx + 2], &existing[idx + 2..])
+        } else {
+            format!("{}\n{section}{}", &existing[..idx + 1], after_heading)
+        }
+    } else {
+        format!("{existing}\n{section}")
+    };
 
     std::fs::write(changelog_path, new_content)
         .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", changelog_path.display()))?;
