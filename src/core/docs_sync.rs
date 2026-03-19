@@ -1,7 +1,7 @@
 use std::path::Path;
 
 /// Update version references in README.md.
-/// Replaces patterns like `v0.7.0` or `version: 0.7.0` with the new version.
+/// Replaces version references in common README patterns, including badges.
 /// Returns true if file was modified.
 pub fn sync_readme_version(
     plugin_root: &Path,
@@ -15,12 +15,15 @@ pub fn sync_readme_version(
 
     let content = std::fs::read_to_string(&readme_path)?;
 
-    // Replace both "vX.Y.Z" and bare "X.Y.Z" occurrences of old version
     let updated = content
         .replace(&format!("v{old_version}"), &format!("v{new_version}"))
         .replace(
             &format!("`{old_version}`"),
             &format!("`{new_version}`"),
+        )
+        .replace(
+            &format!("version-{old_version}-"),
+            &format!("version-{new_version}-"),
         );
 
     if updated == content {
@@ -29,6 +32,34 @@ pub fn sync_readme_version(
 
     std::fs::write(&readme_path, updated)?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sync_readme_version;
+
+    #[test]
+    fn sync_readme_updates_badges_and_version_refs() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let readme = temp.path().join("README.md");
+        std::fs::write(
+            &readme,
+            concat!(
+                "![Version](https://img.shields.io/badge/version-0.11.0-5b21b6)\n",
+                "Current tag is v0.11.0 and CLI reports `0.11.0`.\n"
+            ),
+        )
+        .expect("write README");
+
+        let changed =
+            sync_readme_version(temp.path(), "0.11.0", "0.12.0").expect("sync readme version");
+        let updated = std::fs::read_to_string(&readme).expect("read README");
+
+        assert!(changed);
+        assert!(updated.contains("version-0.12.0-5b21b6"));
+        assert!(updated.contains("v0.12.0"));
+        assert!(updated.contains("`0.12.0`"));
+    }
 }
 
 /// Sync description from plugin.json into SKILL.md frontmatter.

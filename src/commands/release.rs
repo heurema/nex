@@ -2,6 +2,7 @@ use crate::core::{
     changelog,
     config::{self, expand_placeholders, ResolvedConfig},
     docs_sync,
+    git,
     marketplace::{self, MarketplaceRef},
 };
 use chrono::Datelike;
@@ -172,7 +173,7 @@ pub fn run(
 
     // Resolve branch
     let branch = if resolved.git_branch.is_empty() {
-        detect_branch_from_repo(&repo, &resolved.git_remote)
+        git::resolve_push_branch(&repo, &resolved.git_remote)
     } else {
         resolved.git_branch.clone()
     };
@@ -300,6 +301,10 @@ pub fn run(
             vf.pattern.as_deref(), vf.replace.as_deref())?;
         modified_files.push(vf.path.clone());
         println!("  [OK] BUMP        {}", vf.path);
+    }
+    if sync_cargo_lock_version(&plugin_root, &plugin_name, &next_version.to_string())? {
+        modified_files.push("Cargo.lock".to_string());
+        println!("  [OK] BUMP        Cargo.lock");
     }
 
     // CHANGELOG
@@ -641,29 +646,6 @@ fn preflight_remote_accessible(
     Ok(())
 }
 
-fn detect_branch_from_repo(repo: &git2::Repository, remote: &str) -> String {
-    // Try refs/remotes/{remote}/HEAD symbolic target
-    let ref_name = format!("refs/remotes/{remote}/HEAD");
-    if let Ok(reference) = repo.find_reference(&ref_name) {
-        if let Some(target) = reference.symbolic_target() {
-            if let Some(branch) = target.rsplit('/').next() {
-                if !branch.is_empty() {
-                    return branch.to_string();
-                }
-            }
-        }
-    }
-    // Fallback: current HEAD shorthand
-    if let Ok(head) = repo.head() {
-        if let Some(name) = head.shorthand() {
-            if !name.is_empty() && name != "HEAD" {
-                return name.to_string();
-            }
-        }
-    }
-    "main".to_string()
-}
-
 // ── BUMP helpers ──────────────────────────────────────────────────────────────
 
 fn bump_version_file(
@@ -793,6 +775,75 @@ fn bump_regex(
     }
 }
 
+fn sync_cargo_lock_version(
+    plugin_root: &Path,
+    package_name: &str,
+    next_version: &str,
+) -> anyhow::Result<bool> {
+    let cargo_lock_path = plugin_root.join("Cargo.lock");
+    if !cargo_lock_path.exists() {
+        return Ok(false);
+    }
+
+    let content = std::fs::read_to_string(&cargo_lock_path)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", cargo_lock_path.display()))?;
+    let Some(updated) = sync_cargo_lock_content(&content, package_name, next_version) else {
+        return Ok(false);
+    };
+
+    std::fs::write(&cargo_lock_path, updated)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", cargo_lock_path.display()))?;
+    Ok(true)
+}
+
+fn sync_cargo_lock_content(content: &str, package_name: &str, next_version: &str) -> Option<String> {
+    let mut lines: Vec<String> = content.lines().map(|line| line.to_string()).collect();
+    let mut in_package = false;
+    let mut name_matches = false;
+
+    for line in &mut lines {
+        let trimmed = line.trim();
+        if trimmed == "[[package]]" {
+            in_package = true;
+            name_matches = false;
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_package = false;
+            name_matches = false;
+            continue;
+        }
+        if !name_matches && trimmed.starts_with("name") {
+            name_matches = parse_quoted_value(trimmed) == Some(package_name);
+            continue;
+        }
+        if name_matches && trimmed.starts_with("version") {
+            let current_version = parse_quoted_value(trimmed)?;
+            if current_version == next_version {
+                return None;
+            }
+            *line = format!("version = \"{next_version}\"");
+            let mut updated = lines.join("\n");
+            if content.ends_with('\n') {
+                updated.push('\n');
+            }
+            return Some(updated);
+        }
+    }
+
+    None
+}
+
+fn parse_quoted_value(line: &str) -> Option<&str> {
+    let start = line.find('"')?;
+    let rest = &line[start + 1..];
+    let end = rest.find('"')?;
+    Some(&rest[..end])
+}
+
 // ── GIT helpers ───────────────────────────────────────────────────────────────
 
 /// Read project name. Priority: .nex/release.toml name > plugin.json > Cargo.toml
@@ -842,6 +893,43 @@ fn read_plugin_name(plugin_root: &Path) -> anyhow::Result<String> {
         "cannot determine project name in {}\n  Add 'name' to .nex/release.toml, or provide plugin.json or Cargo.toml",
         plugin_root.display()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sync_cargo_lock_content;
+
+    #[test]
+    fn sync_cargo_lock_updates_matching_package_block() {
+        let content = concat!(
+            "version = 4\n\n",
+            "[[package]]\n",
+            "name = \"dep\"\n",
+            "version = \"1.0.0\"\n\n",
+            "[[package]]\n",
+            "name = \"nex\"\n",
+            "version = \"0.11.0\"\n",
+            "dependencies = [\n",
+            " \"dep\",\n",
+            "]\n"
+        );
+
+        let updated = sync_cargo_lock_content(content, "nex", "0.12.0").expect("updated lock");
+
+        assert!(updated.contains("name = \"nex\"\nversion = \"0.12.0\""));
+        assert!(updated.contains("name = \"dep\"\nversion = \"1.0.0\""));
+    }
+
+    #[test]
+    fn sync_cargo_lock_returns_none_when_version_is_already_current() {
+        let content = concat!(
+            "[[package]]\n",
+            "name = \"nex\"\n",
+            "version = \"0.12.0\"\n"
+        );
+
+        assert!(sync_cargo_lock_content(content, "nex", "0.12.0").is_none());
+    }
 }
 
 fn git_stage_and_commit(
