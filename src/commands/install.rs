@@ -469,7 +469,21 @@ fn install_agent_skill(
         .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot canonicalize skill dir: {e}"))?;
 
-    // Try preferred platform first, then the other agent adapter, then root SKILL.md.
+    // Determine format_version to decide fallback policy
+    let format_version = {
+        let pj = skill_dir.join(".claude-plugin/plugin.json");
+        if pj.exists() {
+            fs::read_to_string(&pj)
+                .ok()
+                .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                .and_then(|v| v.get("format_version").and_then(|x| x.as_u64()))
+                .unwrap_or(0) as u32
+        } else {
+            0
+        }
+    };
+
+    // Resolve platform adapter: preferred dir, then fallback (legacy only)
     let (first, second) = match preferred {
         platform::Platform::Gemini => ("platforms/gemini", "platforms/codex"),
         _ => ("platforms/codex", "platforms/gemini"),
@@ -477,6 +491,15 @@ fn install_agent_skill(
 
     let source = if skill_dir.join(first).exists() {
         skill_dir.join(first)
+    } else if format_version >= 2 {
+        // Strict: format_version >= 2 requires dedicated platform adapter
+        anyhow::bail!(
+            "{name}: no dedicated adapter at {}. \
+             format_version >= 2 does not allow fallback. \
+             Create platforms/{} or downgrade format_version.",
+            first,
+            preferred.label()
+        );
     } else if skill_dir.join(second).exists() {
         eprintln!(
             "warning: {name}: using fallback adapter for {}. Create a dedicated platform adapter.",
@@ -493,8 +516,7 @@ fn install_agent_skill(
             preferred.label(),
             preferred.label()
         );
-        // Fix 4: agents expect a directory target; create a wrapper directory
-        // platforms/_fallback/ containing SKILL.md and use that as symlink target.
+        // Legacy fallback: agents expect a directory target; create wrapper
         let fallback_dir = skill_dir.join("platforms/_fallback");
         fs::create_dir_all(&fallback_dir)?;
         let fallback_skill = fallback_dir.join("SKILL.md");

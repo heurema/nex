@@ -143,11 +143,31 @@ fn sync_agent_profile_links(
             dirs.skills_store.join(plugin_name)
         };
 
+        // Check format_version for fallback policy
+        let format_version = {
+            let pj = source.join(".claude-plugin/plugin.json");
+            if pj.exists() {
+                std::fs::read_to_string(&pj)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|v| v.get("format_version").and_then(|x| x.as_u64()))
+                    .unwrap_or(0) as u32
+            } else {
+                0
+            }
+        };
+
         let preferred_dir = source.join(preferred_adapter);
         let fallback_dir = source.join(fallback_adapter);
         let root_skill = source.join("SKILL.md");
         let link_target = if preferred_dir.exists() {
             preferred_dir
+        } else if format_version >= 2 {
+            // Strict: no fallback for format_version >= 2
+            eprintln!(
+                "  [FAIL] {plugin_name} \u{2014} no {platform_name} adapter (format_version >= 2, fallback disabled)"
+            );
+            continue;
         } else if fallback_dir.exists() {
             eprintln!(
                 "warning: {plugin_name}: using fallback adapter for {platform_name}. Dedicated platform adapter recommended."
