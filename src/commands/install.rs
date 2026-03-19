@@ -1,4 +1,5 @@
 use crate::core::{
+    cc_adapter,
     dirs::{Dirs, validate_name},
     hash::compute_sha256,
     lock::FileLock,
@@ -386,6 +387,11 @@ fn install_claude_code(
         }
     }
 
+    // Invalidate CC cache before install so CC gets fresh content
+    cc_adapter::invalidate_cc_cache(dirs, &marketplace_name, name);
+    // Also invalidate emporium cache in case plugin was previously installed from there
+    cc_adapter::invalidate_cc_cache(dirs, "emporium", name);
+
     let install = std::process::Command::new("claude")
         .args([
             "plugin",
@@ -401,6 +407,8 @@ fn install_claude_code(
         let stderr = String::from_utf8_lossy(&install.stderr);
         anyhow::bail!("claude plugin install failed: {stderr}");
     }
+
+    eprintln!("CC cache invalidated for {name}. Run /plugin-reload to apply.");
 
     Ok(format!("{name}@{marketplace_name}"))
 }

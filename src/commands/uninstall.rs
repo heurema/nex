@@ -1,4 +1,5 @@
 use crate::core::{
+    cc_adapter,
     dirs::{Dirs, validate_name},
     lock::FileLock,
     state::{InstalledState, Status},
@@ -43,13 +44,18 @@ pub fn run(name: &str) -> anyhow::Result<()> {
                         // Use dirs.marketplace_dir to get correct path
                         let parts: Vec<&str> = ref_name.split('@').collect();
                         if parts.len() == 2 {
-                            let category = parts[1].strip_prefix("nex-").unwrap_or(parts[1]);
+                            let mp_name = parts[1];
+                            let category = mp_name.strip_prefix("nex-").unwrap_or(mp_name);
                             // finding-9: validate category before passing to marketplace_dir
                             if let Ok(mp_dir) = dirs.marketplace_dir(category) {
                                 let marketplace_link = mp_dir.join("plugins").join(name);
                                 let _ = fs::remove_file(&marketplace_link);
                             }
+                            // Invalidate CC cache for this marketplace
+                            cc_adapter::invalidate_cc_cache(&dirs, mp_name, name);
                         }
+                        // Also invalidate emporium cache
+                        cc_adapter::invalidate_cc_cache(&dirs, "emporium", name);
                         succeeded_platforms.push(plat.clone());
                     }
                     Ok(o) => {

@@ -601,6 +601,81 @@ pub fn load_live_plugins(dirs: &Dirs) -> anyhow::Result<HashMap<String, LivePlug
     Ok(plugins)
 }
 
+// ── CC cache invalidation ────────────────────────────────────────────────────
+
+/// Invalidate Claude Code plugin cache for a specific marketplace + plugin.
+/// Removes the entire plugin subtree from cache (all versions).
+/// CC will re-clone from marketplace on next load.
+pub fn invalidate_cc_cache(dirs: &Dirs, marketplace: &str, plugin: &str) -> bool {
+    let cache_dir = dirs.claude_plugins.join("cache").join(marketplace).join(plugin);
+    if cache_dir.exists() {
+        if let Err(e) = fs::remove_dir_all(&cache_dir) {
+            eprintln!("warning: failed to invalidate CC cache at {}: {e}", cache_dir.display());
+            return false;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Garbage-collect stale nex-owned marketplaces.
+/// Removes nex-* marketplace dirs (not emporium), their cache entries,
+/// and known_marketplaces.json entries.
+/// Returns list of removed marketplace names.
+pub fn gc_nex_marketplaces(dirs: &Dirs) -> Vec<String> {
+    let mut removed = Vec::new();
+    let marketplaces_dir = dirs.claude_plugins.join("marketplaces");
+    let cache_dir = dirs.claude_plugins.join("cache");
+    let known_path = dirs.claude_plugins.join("known_marketplaces.json");
+
+    // Find nex-* marketplace dirs
+    let Ok(entries) = fs::read_dir(&marketplaces_dir) else { return removed };
+    let nex_dirs: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("nex-") { Some(name) } else { None }
+        })
+        .collect();
+
+    for mp_name in &nex_dirs {
+        // Check if marketplace has any plugins
+        let plugins_dir = marketplaces_dir.join(mp_name).join("plugins");
+        let has_plugins = plugins_dir.exists() && fs::read_dir(&plugins_dir)
+            .map(|entries| entries.count() > 0)
+            .unwrap_or(false);
+
+        if has_plugins {
+            continue; // still in use
+        }
+
+        // Remove empty marketplace dir
+        let _ = fs::remove_dir_all(marketplaces_dir.join(mp_name));
+        // Remove matching cache
+        let _ = fs::remove_dir_all(cache_dir.join(mp_name));
+        removed.push(mp_name.clone());
+    }
+
+    // Clean known_marketplaces.json
+    if !removed.is_empty() && known_path.exists() {
+        if let Ok(content) = fs::read_to_string(&known_path) {
+            if let Ok(mut data) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(obj) = data.as_object_mut() {
+                    for name in &removed {
+                        obj.remove(name);
+                    }
+                    if let Ok(json) = serde_json::to_string_pretty(&data) {
+                        let _ = fs::write(&known_path, format!("{json}\n"));
+                    }
+                }
+            }
+        }
+    }
+
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
