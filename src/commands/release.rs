@@ -272,6 +272,7 @@ pub fn run(
         );
     }
     println!("    → PUBLISH     update local registry");
+    println!("    → SYNC        push registry to GitHub");
     if !resolved.post_release_hooks.is_empty() {
         println!(
             "    → HOOKS(post) {} command(s)",
@@ -419,6 +420,15 @@ pub fn run(
         }
     } else {
         println!("  --   PUBLISH     skipped (not a plugin)");
+    }
+
+    // SYNC — push local registry to GitHub (nex repo)
+    if has_plugin_json || has_skill_md {
+        let reg_path = nex_home.join("registry.json");
+        match sync_registry_to_github(&reg_path) {
+            Ok(()) => println!("  [OK] SYNC        registry pushed to GitHub"),
+            Err(e) => eprintln!("  --   SYNC        failed: {e}"),
+        }
     }
 
     // HOOKS (post_release) — non-zero is a warning only
@@ -1103,4 +1113,84 @@ fn resolved_config_source(plugin_root: &Path) -> String {
     } else {
         ".nex/release.toml (not found, using defaults)".to_string()
     }
+}
+
+/// Push local registry.json to heurema/nex repo as registry-v2.json via gh CLI.
+/// Uses a shell pipeline: base64-encode content, get current SHA, PUT via gh api.
+fn sync_registry_to_github(local_registry: &Path) -> anyhow::Result<()> {
+    if !local_registry.exists() {
+        anyhow::bail!("local registry not found at {}", local_registry.display());
+    }
+
+    // Check gh is available
+    if Command::new("gh").arg("--version").output().is_err() {
+        anyhow::bail!("gh CLI not found — cannot sync registry to GitHub");
+    }
+
+    // base64-encode registry content
+    let b64_output = Command::new("base64")
+        .arg("-i")
+        .arg(local_registry)
+        .output()?;
+    if !b64_output.status.success() {
+        anyhow::bail!("base64 encode failed");
+    }
+    let encoded = String::from_utf8_lossy(&b64_output.stdout)
+        .replace('\n', "")
+        .replace('\r', "");
+
+    // Get current file SHA (needed for update)
+    let sha_output = Command::new("gh")
+        .args([
+            "api",
+            "repos/heurema/nex/contents/registry-v2.json",
+            "--jq",
+            ".sha",
+        ])
+        .output()?;
+    if !sha_output.status.success() {
+        anyhow::bail!(
+            "failed to get registry-v2.json SHA: {}",
+            String::from_utf8_lossy(&sha_output.stderr).trim()
+        );
+    }
+    let sha = String::from_utf8_lossy(&sha_output.stdout).trim().to_string();
+
+    // Build JSON body
+    let body = serde_json::json!({
+        "message": "sync registry-v2.json",
+        "content": encoded,
+        "sha": sha,
+    });
+
+    // PUT via gh api
+    let result = Command::new("gh")
+        .args([
+            "api",
+            "repos/heurema/nex/contents/registry-v2.json",
+            "-X",
+            "PUT",
+            "--input",
+            "-",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            if let Some(ref mut stdin) = child.stdin {
+                use std::io::Write;
+                stdin.write_all(body.to_string().as_bytes())?;
+            }
+            child.wait_with_output()
+        })?;
+
+    if !result.status.success() {
+        anyhow::bail!(
+            "gh api PUT failed: {}",
+            String::from_utf8_lossy(&result.stderr).trim()
+        );
+    }
+
+    Ok(())
 }
