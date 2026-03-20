@@ -1,6 +1,6 @@
 [package]
 name = "nex"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 description = "Cross-CLI skill portability for AI agents — install once, use in Claude Code, Codex, and Gemini"
 license = "MIT"
