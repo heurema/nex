@@ -1,18 +1,20 @@
-# nex
-
-<div align="center">
-
-**Cross-CLI plugin distribution for AI agents**
-
-![Rust](https://img.shields.io/badge/Rust-CLI-5b21b6?style=flat-square)
-![Version](https://img.shields.io/badge/version-0.16.0-5b21b6?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-5b21b6?style=flat-square)
-
-```bash
-cargo install --git https://github.com/heurema/nex.git --locked
 ```
 
-</div>
+   ____  ___  _  __
+  / __ \/ _ \| |/_/
+ / / / /  __/>  <
+/_/ /_/\___/_/|_|
+```
+
+**Cross-CLI plugin distribution for AI agents.**
+
+[![Rust](https://img.shields.io/badge/Rust-stable-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-0.16.0-5b21b6?style=flat-square)]()
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+> Install once — symlinks, marketplace entries, and agent skill configs are handled automatically.
+
+---
 
 ## What it does
 
